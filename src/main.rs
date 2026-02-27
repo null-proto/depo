@@ -61,6 +61,7 @@ fn init_tracing() {
     .with(
       tracing_subscriber::fmt::layer()
         .with_level(true)
+        .without_time()
         .with_target(true),
     )
     .with(tracing_filter)
