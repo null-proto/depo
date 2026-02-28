@@ -1,4 +1,4 @@
-name: Rust
+name: Docker reg
 
 on:
   push:
@@ -7,12 +7,12 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
+    - name: login
+      run: echo ${{ secrets.DOCKER_TOKEN }} | docker login -u $REF_D_NAME --password-stdin
     - name: Build
-      run: docker builx . --name=${REG_NAME}:${}
-    - name: Run tests
-      run: cargo test --verbose
+      run: docker builx . --name=$REF_D_NAME/$SELF_D_NAME:new --file="./docker/Dockerfile"
+    - name: Push
+      run: docker push $REF_D_NAME/$SELF_D_NAME:new
