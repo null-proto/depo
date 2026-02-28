@@ -3,10 +3,7 @@ name: Rust
 on:
   push:
     branches: 
-    - never
-
-env:
-  CARGO_TERM_COLOR: always
+    - master
 
 jobs:
   build:

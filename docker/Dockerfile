@@ -1,7 +1,8 @@
 FROM rust:alpine AS builder
 
-COPY . /app
+COPY ../. /app
 WORKDIR /app
+
 RUN cargo fetch
 RUN cargo test
 RUN cargo build --release
