@@ -1,0 +1,33 @@
+name: Test runner
+
+on:
+  # push:
+  #   branches: [ "*-" ]
+  pull_request:
+    branches: [ "master" ]
+
+# permissions:
+#   contents: write
+#   pull-requests: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+
+    # - name: pr
+    #   if: success()
+    #   run: gh pr merge --auto --merge "$PR_URL"
+    #   env:
+    #     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    #     PR_URL: ${{ github.event.pull_request.html_url }}
