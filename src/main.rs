@@ -1,6 +1,11 @@
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
+
+pub mod proxy;
+pub mod body;
+
+
 #[allow(unused)]
 struct TimeSample {
   inner: tokio::time::Instant,
@@ -31,7 +36,7 @@ fn init_tracing() {
     .with_target("rt", tracing::Level::TRACE)
     .with_target("main", tracing::Level::TRACE)
     .with_target("net", tracing::Level::TRACE)
-    .with_target("write", tracing::Level::TRACE)
+    .with_target("depo", tracing::Level::TRACE)
     .with_default(tracing::Level::ERROR);
 
   tracing_subscriber::registry()
@@ -96,6 +101,7 @@ fn main() {
 async fn main_() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   info!(target: "rt", "initiated ...");
 
+  crate::proxy::proxy_run().await?;
   Ok(())
 }
 
