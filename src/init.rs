@@ -19,7 +19,7 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
   let listener = tokio::net::TcpListener::bind(addr).await?;
   log::info!("listening on tcp {}", addr);
 
-  let tls_cfg = tls_config();
+  let tls_cfg = tls_config()?;
 
   loop {
     if let Ok((stream, peer)) = listener.accept().await {
@@ -30,7 +30,7 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
             log::error!("{}", e);
             log::debug!("{:?}", e);
           } else if let Some(e) = e.downcast_ref::<std::io::Error>() {
-            log::error!("{}: {}", e.kind() , e.to_string());
+            log::error!("{}: {}", e.kind(), e.to_string());
           } else {
             log::error!("unknown error: {:?}", e);
           }
@@ -71,67 +71,63 @@ async fn h2_handler(
   // use h2::server::Connection;
   // use h2::server::Handshake;
   use h2::server::Builder;
-  use std::io::ErrorKind;
-  use std::io::Error;
-
-  let pipe_broken = Error::new(ErrorKind::BrokenPipe,"connection uninitiated");
 
   let mut conn = Box::pin(
     Builder::new()
-      .enable_connect_protocol()
+      // .enable_connect_protocol()
       .handshake::<_, bytes::Bytes>(stream),
   )
   .await?;
   // let mut conn = handshake(stream).await?;
 
-  let (mut conn, mut _sr) = conn.accept().await.ok_or(pipe_broken)??;
+  while let Some(parts) = conn.accept().await {
+    let (mut conn, mut _sr) = parts?;
 
-  log::trace!("header > {:?}", conn);
-  if let Some(Ok(body)) = conn.body_mut().data().await {
-    log::trace!("body > {:?}", body);
-    log::trace!(" *** ");
-  } else {
-    log::trace!(" *** ");
+    log::trace!("header > {:?}", conn);
+    if let Some(Ok(body)) = conn.body_mut().data().await {
+      log::trace!("body > {:?}", body);
+      log::trace!(" *** ");
+    } else {
+      log::trace!(" *** ");
+    }
+
+    // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+    _sr.send_response(
+      http::Response::builder()
+        .status(http::StatusCode::OK)
+        .body(())?,
+      true,
+    )?;
   }
-
-  // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-  _sr.send_response(
-    http::Response::builder()
-      .status(http::StatusCode::OK)
-      .body(())?,
-    true,
-  )?;
 
   Ok(())
 }
 
-fn tls_config() -> tokio_rustls::TlsAcceptor {
+fn tls_config() -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>> {
   use rustls::ServerConfig;
   use rustls::pki_types::{CertificateDer, PrivateKeyDer};
   use std::{fs::File, io::BufReader, sync::Arc};
   use tokio_rustls::TlsAcceptor;
 
   let certs = {
-    let mut reader = BufReader::new(File::open("cert.pem").unwrap());
+    let mut reader = BufReader::new(File::open("cert.pem")?);
     rustls_pemfile::certs(&mut reader)
-      .map(|c| CertificateDer::from(c.unwrap()))
+      .map(|c| Some(CertificateDer::from(c.ok()?)))
+      .flatten()
       .collect::<Vec<_>>()
   };
 
   let key = {
-    let mut reader = BufReader::new(File::open("key.pem").unwrap());
-    let keys = rustls_pemfile::pkcs8_private_keys(&mut reader)
-      .collect::<Result<Vec<_>, _>>()
-      .unwrap();
+    let mut reader = BufReader::new(File::open("key.pem")?);
+    let keys = rustls_pemfile::pkcs8_private_keys(&mut reader).collect::<Result<Vec<_>, _>>()?;
     PrivateKeyDer::from(keys[0].clone_key())
   };
 
   let mut config = ServerConfig::builder()
     .with_no_client_auth()
-    .with_single_cert(certs, key)
-    .unwrap();
+    .with_single_cert(certs, key)?;
 
   config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
-  TlsAcceptor::from(Arc::new(config))
+  Ok(TlsAcceptor::from(Arc::new(config)))
 }
