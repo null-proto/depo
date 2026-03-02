@@ -27,11 +27,12 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
       tokio::spawn(async move {
         if let Err(e) = handler(stream, peer, tls_cfg).await {
           if let Some(e) = e.downcast_ref::<h2::Error>() {
-            log::error!("{:?}", e);
-            log::debug!("{}", e);
+            log::error!("{}", e);
+            log::debug!("{:?}", e);
           } else if let Some(e) = e.downcast_ref::<std::io::Error>() {
-            log::error!("{:?}", e);
-            log::debug!("{}", e);
+            log::error!("{}: {}", e.kind() , e.to_string());
+          } else {
+            log::error!("unknown error: {:?}", e);
           }
         }
       });
@@ -66,15 +67,24 @@ async fn handler(
 async fn h2_handler(
   stream: TlsStream<TcpStream>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  use h2::server::handshake;
+  // use h2::server::handshake;
+  // use h2::server::Connection;
+  // use h2::server::Handshake;
+  use h2::server::Builder;
+  use std::io::ErrorKind;
+  use std::io::Error;
 
-  let mut conn = handshake(stream).await?;
+  let pipe_broken = Error::new(ErrorKind::BrokenPipe,"connection uninitiated");
 
-  let (mut conn, mut _sr) = conn
-    .accept()
-    .await
-    .expect("None found")
-    .expect("no valid request");
+  let mut conn = Box::pin(
+    Builder::new()
+      .enable_connect_protocol()
+      .handshake::<_, bytes::Bytes>(stream),
+  )
+  .await?;
+  // let mut conn = handshake(stream).await?;
+
+  let (mut conn, mut _sr) = conn.accept().await.ok_or(pipe_broken)??;
 
   log::trace!("header > {:?}", conn);
   if let Some(Ok(body)) = conn.body_mut().data().await {
