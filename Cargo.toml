@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 bytes = { version = "1.11.1", features = ["serde"] }
 futures = "0.3.32"
+h2 = "0.4.13"
 http = "1.4.0"
 pin-project = "1.1.11"
 rand = "0.10.0"
