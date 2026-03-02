@@ -41,7 +41,7 @@ fn init_tracing() {
         .with_level(true)
         .with_target(true)
         .with_timer(TimeSample::new())
-        .with_thread_names(true),
+        .with_thread_names(true)
     )
     .with(tracing_filter)
     .init();
@@ -76,6 +76,7 @@ fn main() {
   init_tracing();
 
   if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+    .thread_name("rt")
     .enable_all()
     .build()
   {

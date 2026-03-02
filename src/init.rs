@@ -2,6 +2,8 @@ use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV4;
 use tokio::net::TcpStream;
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::server::TlsStream;
 use tracing as log;
 
 pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -17,10 +19,13 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
   let listener = tokio::net::TcpListener::bind(addr).await?;
   log::info!("listening on tcp {}", addr);
 
+  let tls_cfg = tls_config();
+
   loop {
     if let Ok((stream, peer)) = listener.accept().await {
+      let tls_cfg = tls_cfg.clone();
       tokio::spawn(async move {
-        if let Err(e) = handler(stream, peer).await {
+        if let Err(e) = handler(stream, peer, tls_cfg).await {
           if let Some(e) = e.downcast_ref::<h2::Error>() {
             log::error!("{:?}", e);
             log::debug!("{}", e);
@@ -37,10 +42,32 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
 async fn handler(
   stream: TcpStream,
   peer: SocketAddr,
+  tls_cfg: TlsAcceptor,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  log::info!("connected {}", peer);
+
+  let stream = tls_cfg.accept(stream).await?;
+
+  let protocol = stream.get_ref().1.alpn_protocol();
+
+  match protocol {
+    Some(b"h2") => h2_handler(stream).await?,
+    Some(u) => {
+      log::error!("unsupported protocol: {}", String::from_utf8_lossy(u));
+    }
+    None => {
+      log::error!("protocol not defined");
+    }
+  }
+
+  Ok(())
+}
+
+async fn h2_handler(
+  stream: TlsStream<TcpStream>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   use h2::server::handshake;
 
-  log::info!("connected {}", peer);
   let mut conn = handshake(stream).await?;
 
   let (mut conn, mut _sr) = conn
@@ -57,10 +84,44 @@ async fn handler(
     log::trace!(" *** ");
   }
 
+  // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
   _sr.send_response(
-    http::Response::builder().status(http::StatusCode::OK).body(())?,
+    http::Response::builder()
+      .status(http::StatusCode::OK)
+      .body(())?,
     true,
   )?;
 
   Ok(())
+}
+
+fn tls_config() -> tokio_rustls::TlsAcceptor {
+  use rustls::ServerConfig;
+  use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+  use std::{fs::File, io::BufReader, sync::Arc};
+  use tokio_rustls::TlsAcceptor;
+
+  let certs = {
+    let mut reader = BufReader::new(File::open("cert.pem").unwrap());
+    rustls_pemfile::certs(&mut reader)
+      .map(|c| CertificateDer::from(c.unwrap()))
+      .collect::<Vec<_>>()
+  };
+
+  let key = {
+    let mut reader = BufReader::new(File::open("key.pem").unwrap());
+    let keys = rustls_pemfile::pkcs8_private_keys(&mut reader)
+      .collect::<Result<Vec<_>, _>>()
+      .unwrap();
+    PrivateKeyDer::from(keys[0].clone_key())
+  };
+
+  let mut config = ServerConfig::builder()
+    .with_no_client_auth()
+    .with_single_cert(certs, key)
+    .unwrap();
+
+  config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+  TlsAcceptor::from(Arc::new(config))
 }
