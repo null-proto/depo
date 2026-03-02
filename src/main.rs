@@ -2,10 +2,6 @@
 use tracing::{debug, error, info, trace, warn};
 
 
-pub mod proxy;
-pub mod body;
-
-
 #[allow(unused)]
 struct TimeSample {
   inner: tokio::time::Instant,
@@ -49,6 +45,9 @@ fn init_tracing() {
     )
     .with(tracing_filter)
     .init();
+
+  trace!(target: "main", "trace level ...");
+  warn!(target: "main" , "executing debug build ...")
 }
 
 #[cfg(not(debug_assertions))]
@@ -75,13 +74,12 @@ fn init_tracing() {
 
 fn main() {
   init_tracing();
-  trace!(target: "main", "initiated ...");
 
   if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()
   {
-    if let Err(err) = rt.block_on(main_()) {
+    if let Err(err) = rt.block_on(depo::init::main()) {
       error!(target: "main" ,"runtime returns error ...");
       if let Some(err) = err.downcast_ref::<tokio::io::Error>() {
         error!(target: "main" ,"{} {}" ,err.kind() , err.to_string() );
@@ -96,12 +94,5 @@ fn main() {
     std::process::exit(1);
   }
   info!(target: "main", "exiting ...");
-}
-
-async fn main_() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  info!(target: "rt", "initiated ...");
-
-  crate::proxy::proxy_run().await?;
-  Ok(())
 }
 
