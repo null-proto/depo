@@ -122,7 +122,8 @@ where
     if let Some(req) = self.next().await {
       let _a = self.call(req).await?;
 
-      self.send(b"HTTP/1.1 200 OK\n\rConnection : Close\n\r\n\r").await?;
+    // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+      self.send(b"HTTP/1.1 200 Ok\r\nConnection: Close\r\nContent-Length: 5\r\n\r\nhello").await?;
     } else {
       log::debug!("request dropped");
     }

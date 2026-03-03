@@ -76,7 +76,7 @@ fn init_tracing() {
 fn main() {
   init_tracing();
 
-  if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+  if let Ok(rt) = tokio::runtime::Builder::new_multi_thread()
     .thread_name("rt")
     .enable_all()
     .build()
