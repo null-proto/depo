@@ -1,41 +1,137 @@
-#![allow(unused)]
-
 use std::pin::Pin;
+
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
-
 use futures::Stream;
+use futures::StreamExt;
+use futures::Sink;
 use tokio::net::TcpStream;
 use tokio_rustls::server::TlsStream;
+use tower::Service;
+use tracing as log;
 
-#[derive(Clone, Debug)]
+#[derive( Debug)]
 pub struct Connection<T> {
-  stream: T
+  stream: T,
+  writebuf : Vec<u8>
 }
 
 impl<T> Connection<T> {
-  pub fn new(io : T) -> Self
-  where 
-    T: AsyncRead + AsyncWrite + Clone + Unpin
+  pub fn new(io: T) -> Self
+  where
+    T: AsyncRead + AsyncWrite  + Unpin,
   {
-    Self { stream: io }
+    Self { stream: io , writebuf: vec![] }
   }
 }
 
-impl<T> Stream for Connection<T> {
-  type Item = ();
+impl<T: AsyncRead + Unpin> Stream for Connection<T> {
+  type Item = Vec<u8>;
 
-  fn poll_next(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Option<Self::Item>> {
-    unimplemented!()
+  fn poll_next(
+    self: Pin<&mut Self>,
+    cx: &mut std::task::Context<'_>,
+  ) -> std::task::Poll<Option<Self::Item>> {
+
+    let mut buf_ = vec![0u8;8000];
+    let mut buffer = tokio::io::ReadBuf::new(buf_.as_mut_slice());
+    let s = Pin::new(&mut self.get_mut().stream);
+    s.poll_read(cx,&mut buffer)
+      .map(|_| Some(buf_) )
   }
 }
 
+impl<T: AsyncWrite + Unpin, Item> Sink<Item> for Connection<T> 
+where 
+  Item: Into<Vec<u8>>
+{
+  type Error = Box<dyn std::error::Error + Send + Sync>;
+
+  fn poll_ready(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    Pin::new(&mut self.get_mut().stream)
+    .poll_write(cx, &[])
+    .map_ok(|_| () )
+    .map_err(|e| e.into())
+  }
+
+  fn start_send(self: Pin<&mut Self>, item: Item) -> Result<(), Self::Error> {
+    let item = item.into();
+    let mut _buf = &mut self.get_mut().writebuf;
+    _buf.extend(item);
+    Ok(())
+  }
+
+  fn poll_flush(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    let _buf = self.as_ref().writebuf.clone();
+    Pin::new(&mut self.get_mut().stream)
+      .poll_write(cx, &_buf)
+      .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync> )
+      .map_ok(|_| ())
+
+    // Pin::new(&mut self.get_mut().stream)
+    //   .poll_flush(cx)
+    //   .map_err(|e| e.into())
+  }
+
+  fn poll_close(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    Pin::new(&mut self.get_mut().stream)
+      .poll_shutdown(cx)
+      .map_err(|e| e.into())
+  }
+}
+
+impl<T, Request> Service<Request> for Connection<T>
+where
+  Request: Into<Vec<u8>> + 'static,
+  T: AsyncRead + AsyncWrite + Unpin
+{
+  type Error = Box<dyn std::error::Error + Send + Sync>;
+  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
+  type Response = Vec<u8>;
+
+  fn poll_ready(
+    &mut self,
+    cx: &mut std::task::Context<'_>,
+  ) -> std::task::Poll<Result<(), Self::Error>> {
+    Pin::new(&mut self.stream)
+    .poll_write(cx, &[])
+    .map_ok(|_| () )
+    .map_err(|e| e.into())
+
+    // std::task::Poll::Ready(Ok(()))
+  }
+
+  fn call(&mut self, req: Request) -> Self::Future {
+    let req : Vec<u8> = req.into();
+    Box::pin(async move {
+      log::trace!("ingres: {}", String::from_utf8_lossy(req.as_slice()));
+      Ok(req)
+    })
+  }
+}
+
+impl<T> Connection<T>
+where 
+  T: AsyncRead + AsyncWrite + Unpin
+{
+  pub async  fn handler(&mut self) -> Result<() , Box<dyn std::error::Error + Send + Sync>> {
+    if let Some(req) = self.next().await {
+      let _a = self.call(req).await?;
+
+    } else {
+      log::debug!("request dropped");
+    }
+    Ok(())
+  }
+}
 
 pub async fn h1_handler(
   stream: TlsStream<TcpStream>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
+  let mut conn = Connection::new(stream);
+
+  conn.handler().await?;
 
   Ok(())
 }
-
