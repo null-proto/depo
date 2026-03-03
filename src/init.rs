@@ -6,6 +6,8 @@ use tokio_rustls::TlsAcceptor;
 use tokio_rustls::server::TlsStream;
 use tracing as log;
 
+use crate::http1;
+
 pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   log::info!(target: "rt", "async runtime is being initiated ...");
 
@@ -27,12 +29,12 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
       tokio::spawn(async move {
         if let Err(e) = handler(stream, peer, tls_cfg).await {
           if let Some(e) = e.downcast_ref::<h2::Error>() {
-            log::error!("{}", e);
+            log::error!(" h2:] {}", e);
             log::debug!("{:?}", e);
           } else if let Some(e) = e.downcast_ref::<std::io::Error>() {
-            log::error!("{}: {}", e.kind(), e.to_string());
+            log::error!("std:] {}: {}", e.kind(), e.to_string());
           } else {
-            log::error!("unknown error: {:?}", e);
+            log::error!("unk:] {:?}", e);
           }
         }
       });
@@ -48,11 +50,16 @@ async fn handler(
   log::info!("connected {}", peer);
 
   let stream = tls_cfg.accept(stream).await?;
+  log::debug!("tls handshake completed {}", peer);
 
   let protocol = stream.get_ref().1.alpn_protocol();
 
   match protocol {
     Some(b"h2") => h2_handler(stream).await?,
+    Some(b"http/1.1") => {
+      log::warn!("experimental protocol implementation in use: http/1.1");
+      http1::h1_handler(stream).await?;
+    }
     Some(u) => {
       log::error!("unsupported protocol: {}", String::from_utf8_lossy(u));
     }
@@ -74,31 +81,34 @@ async fn h2_handler(
 
   let mut conn = Box::pin(
     Builder::new()
-      // .enable_connect_protocol()
+      .enable_connect_protocol()
       .handshake::<_, bytes::Bytes>(stream),
   )
   .await?;
   // let mut conn = handshake(stream).await?;
 
   while let Some(parts) = conn.accept().await {
-    let (mut conn, mut _sr) = parts?;
+    let (mut res, mut sr) = parts?;
 
-    log::trace!("header > {:?}", conn);
-    if let Some(Ok(body)) = conn.body_mut().data().await {
+    log::trace!("header > {:?}", res);
+    if let Some(Ok(body)) = res.body_mut().data().await {
       log::trace!("body > {:?}", body);
-      log::trace!(" *** ");
+      log::trace!(" ***");
     } else {
-      log::trace!(" *** ");
+      log::trace!(" ***");
     }
 
+    // _sr.send_reset(Reason::HTTP_1_1_REQUIRED);
+
     // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-    _sr.send_response(
+    sr.send_response(
       http::Response::builder()
-        .status(http::StatusCode::OK)
+        .status(http::StatusCode::NOT_FOUND)
         .body(())?,
       true,
     )?;
   }
+  log::trace!(" *** connection ended");
 
   Ok(())
 }
@@ -127,7 +137,10 @@ fn tls_config() -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>>
     .with_no_client_auth()
     .with_single_cert(certs, key)?;
 
-  config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+  config.alpn_protocols = vec![
+    b"h2".to_vec(),
+   b"http/1.1".to_vec()
+  ];
 
   Ok(TlsAcceptor::from(Arc::new(config)))
 }
