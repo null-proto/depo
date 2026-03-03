@@ -1,5 +1,6 @@
 use std::pin::Pin;
 
+use futures::SinkExt;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use futures::Stream;
@@ -62,15 +63,18 @@ where
   }
 
   fn poll_flush(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
-    let _buf = self.as_ref().writebuf.clone();
-    Pin::new(&mut self.get_mut().stream)
+    let s = &mut self.get_mut();
+
+    let _buf : Vec<u8> = std::mem::take(&mut s.writebuf);
+
+    _ = Pin::new(&mut s.stream)
       .poll_write(cx, &_buf)
       .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync> )
-      .map_ok(|_| ())
+      .map_ok(|_| ())?;
 
-    // Pin::new(&mut self.get_mut().stream)
-    //   .poll_flush(cx)
-    //   .map_err(|e| e.into())
+    Pin::new(&mut s.stream)
+      .poll_flush(cx)
+      .map_err(|e| e.into())
   }
 
   fn poll_close(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
@@ -118,6 +122,7 @@ where
     if let Some(req) = self.next().await {
       let _a = self.call(req).await?;
 
+      self.send(b"HTTP/1.1 200 OK\n\rConnection : Close\n\r\n\r").await?;
     } else {
       log::debug!("request dropped");
     }
