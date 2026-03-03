@@ -120,6 +120,14 @@ where
 {
   pub async  fn handler(&mut self) -> Result<() , Box<dyn std::error::Error + Send + Sync>> {
     if let Some(req) = self.next().await {
+
+      let mut header = vec![httparse::EMPTY_HEADER ; 5 ];
+      _ = httparse::parse_headers(&req,&mut header);
+      let _a : Vec<_> = header.iter()
+        // .filter(|x| (**x)==httparse::EMPTY_HEADER)
+        .collect();
+
+      log::trace!("ingress: {:?}", header);
       let _a = self.call(req).await?;
 
     // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
