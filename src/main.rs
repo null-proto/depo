@@ -42,7 +42,7 @@ fn init_tracing() {
         .with_target(true)
         .with_timer(TimeSample::new())
         .with_thread_names(true)
-        // .with_thread_ids(true)
+        .with_thread_ids(true)
     )
     .with(tracing_filter)
     .init();

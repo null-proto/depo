@@ -1,9 +1,10 @@
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV4;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
-use tokio_rustls::server::TlsStream;
 use tracing as log;
 
 use crate::http1;
@@ -12,8 +13,15 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   log::info!(target: "rt", "async runtime is being initiated ...");
 
   let addr = std::net::SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 2), 8080));
+  let addr_tls = std::net::SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 2), 8443));
 
-  runner(addr).await?;
+
+  let res = tokio::join!(
+    runner(addr),
+    srunner(addr_tls)
+  );
+
+  res.0?;
   Ok(())
 }
 
@@ -21,13 +29,35 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
   let listener = tokio::net::TcpListener::bind(addr).await?;
   log::info!("listening on tcp {}", addr);
 
+  loop {
+    if let Ok((stream, peer)) = listener.accept().await {
+      tokio::spawn(async move {
+        if let Err(e) = handler(stream, peer, None).await {
+          if let Some(e) = e.downcast_ref::<h2::Error>() {
+            log::error!(" h2:] {}", e);
+            log::debug!("{:?}", e);
+          } else if let Some(e) = e.downcast_ref::<std::io::Error>() {
+            log::error!("std:] {}: {}", e.kind(), e.to_string());
+          } else {
+            log::error!("unk:] {:?}", e);
+          }
+        }
+      });
+    }
+  }
+}
+
+async fn srunner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  let listener = tokio::net::TcpListener::bind(addr).await?;
+  log::info!("listening on tcp {} [tls]", addr);
+
   let tls_cfg = tls_config()?;
 
   loop {
     if let Ok((stream, peer)) = listener.accept().await {
       let tls_cfg = tls_cfg.clone();
       tokio::spawn(async move {
-        if let Err(e) = handler(stream, peer, tls_cfg).await {
+        if let Err(e) = handler(stream, peer, Some(tls_cfg)).await {
           if let Some(e) = e.downcast_ref::<h2::Error>() {
             log::error!(" h2:] {}", e);
             log::debug!("{:?}", e);
@@ -45,34 +75,49 @@ async fn runner(addr: SocketAddr) -> Result<(), Box<dyn std::error::Error + Send
 async fn handler(
   stream: TcpStream,
   peer: SocketAddr,
-  tls_cfg: TlsAcceptor,
+  tls_cfg: Option<TlsAcceptor>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   log::info!("connected {}", peer);
 
-  let stream = tls_cfg.accept(stream).await?;
-  log::debug!("tls handshake completed {}", peer);
+  match tls_cfg {
+    Some(tls_cfg) => {
+      let stream = tls_cfg.accept(stream).await?;
+      log::debug!("tls handshake completed {}", peer);
 
-  let protocol = stream.get_ref().1.alpn_protocol();
+      let protocol = stream.get_ref().1.alpn_protocol();
 
-  match protocol {
-    Some(b"h2") => h2_handler(stream).await?,
-    Some(b"http/1.1") => {
-      log::warn!("experimental protocol implementation in use: http/1.1");
-      http1::h1_handler(stream).await?;
-    }
-    Some(u) => {
-      log::error!("unsupported protocol: {}", String::from_utf8_lossy(u));
+      match protocol {
+        Some(b"h2") => h2_handler(stream).await?,
+        Some(b"http/1.1") => {
+          log::warn!("experimental protocol implementation in use: http/1.1");
+          http1::h1_handler(stream).await?;
+        }
+        Some(u) => {
+          log::error!("unsupported protocol: {}", String::from_utf8_lossy(u));
+        }
+        None => {
+          log::error!("protocol not defined");
+        }
+      }
     }
     None => {
-      log::error!("protocol not defined");
+      // (deprecated) check preface
+      //
+      // (default) assume all connections're http/1.1
+
+      log::warn!("experimental protocol implementation in use: http/1.1");
+      log::warn!("connection is not secure");
+      http1::h1_handler(stream).await?;
+
+      log::debug!(" *** connection closed {}", peer);
     }
   }
 
   Ok(())
 }
 
-async fn h2_handler(
-  stream: TlsStream<TcpStream>,
+async fn h2_handler<T: AsyncRead + AsyncWrite + Unpin>(
+  stream: T,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   // use h2::server::handshake;
   // use h2::server::Connection;
@@ -137,10 +182,7 @@ fn tls_config() -> Result<TlsAcceptor, Box<dyn std::error::Error + Send + Sync>>
     .with_no_client_auth()
     .with_single_cert(certs, key)?;
 
-  config.alpn_protocols = vec![
-    b"h2".to_vec(),
-   b"http/1.1".to_vec()
-  ];
+  config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
   Ok(TlsAcceptor::from(Arc::new(config)))
 }
