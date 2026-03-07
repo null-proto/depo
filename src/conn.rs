@@ -67,8 +67,7 @@ where
 
     _ = Pin::new(&mut s.stream)
       .poll_write(cx, &_buf)
-      .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync> )
-      .map_ok(|_| ())?;
+      .map_err(|e| Box::new(e) as Self::Error )?;
 
     Pin::new(&mut s.stream)
       .poll_flush(cx)
@@ -121,7 +120,7 @@ where
 
       let _a = self.call(req).await?;
 
-    // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
+      // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
       self.send(b"HTTP/1.1 200 Ok\r\nConnection: Close\r\nContent-Length: 5\r\n\r\nhello").await?;
     } else {
       log::debug!("request dropped");
@@ -133,7 +132,7 @@ where
 pub async fn h1_handler<T : AsyncRead + AsyncWrite + Unpin>(
   stream: T,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-
+  // one conn = one req/res = one use
   let mut conn = Connection::new(stream);
 
   conn.handler().await?;

@@ -7,7 +7,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsAcceptor;
 use tracing as log;
 
-use crate::http1;
+use crate::conn;
 
 pub async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   log::info!(target: "rt", "async runtime is being initiated ...");
@@ -77,7 +77,7 @@ async fn handler(
   peer: SocketAddr,
   tls_cfg: Option<TlsAcceptor>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  log::info!("connected {}", peer);
+  log::debug!(" *** connected {}", peer);
 
   match tls_cfg {
     Some(tls_cfg) => {
@@ -90,7 +90,7 @@ async fn handler(
         Some(b"h2") => h2_handler(stream).await?,
         Some(b"http/1.1") => {
           log::warn!("experimental protocol implementation in use: http/1.1");
-          http1::h1_handler(stream).await?;
+          conn::h1_handler(stream).await?;
         }
         Some(u) => {
           log::error!("unsupported protocol: {}", String::from_utf8_lossy(u));
@@ -107,12 +107,11 @@ async fn handler(
 
       log::warn!("experimental protocol implementation in use: http/1.1");
       log::warn!("connection is not secure");
-      http1::h1_handler(stream).await?;
-
-      log::debug!(" *** connection closed {}", peer);
+      conn::h1_handler(stream).await?;
     }
   }
 
+  log::debug!(" *** connection closed {}", peer);
   Ok(())
 }
 
