@@ -118,6 +118,10 @@ where
   pub async  fn handler(&mut self) -> Result<() , Box<dyn std::error::Error + Send + Sync>> {
     if let Some(req) = self.next().await {
 
+      let _req = crate::http::parse_req(req.clone().into());
+
+      log::info!("parsed: {:?}", _req);
+
       let _a = self.call(req).await?;
 
       // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
