@@ -90,14 +90,14 @@ where
   }
 }
 
-impl<T, Request> Service<Request> for Connection<T>
+impl<T ,Request> Service<Request> for Connection<T>
 where
   Request: Into<http::Request<Option<Bytes>>> + 'static,
   T: AsyncRead + AsyncWrite + Unpin,
 {
   type Error = Box<dyn std::error::Error + Send + Sync>;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
-  type Response = http::Response<Option<Vec<u8>>>;
+  type Response = http::Response<Option<Bytes>>;
 
   fn poll_ready(
     &mut self,
@@ -115,10 +115,13 @@ where
     let _req = req.into();
 
     Box::pin(async move {
+
+      let payload = "hello".as_bytes();
+
       http::Response::builder()
         .status(200)
-        .header(http::header::CONTENT_LENGTH, 5)
-        .body( Some(b"hello".to_vec()) )
+        .header("Content-Length", payload.len())
+        .body( Some(Bytes::from(payload)))
         .map_err(Into::into)
     })
   }
@@ -134,11 +137,12 @@ where
     if let Some(req) = self.next().await {
       let _req = crate::http::parse_req(req.into())?;
       log::info!("ingres: {:?}", _req);
-      let _a = self.call(_req).await?.into_h1_bytes();
+      let _a = self.call(_req).await?;
+      log::info!("engres: {:?}", _a);
 
       // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
       self
-        .send(_a)
+        .send(_a.into_h1_bytes())
         .await?;
     } else {
       log::debug!("request dropped");
