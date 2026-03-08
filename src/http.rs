@@ -137,22 +137,13 @@ where
     );
     _res.extend_from_slice(b"\r\n");
 
-      let _hm_list = hm
-        .iter()
-        .map(|i| {
-          [
-            i.0
-              .as_str()
-              .as_bytes(),
+    let _hm_list = hm
+      .iter()
+      .map(|i| [i.0.as_str().as_bytes(), i.1.as_bytes()].join(b": " as &[u8]))
+      .collect::<Vec<Vec<u8>>>();
 
-            i.1.as_bytes(),
-          ]
-          .join(b": " as &[u8])
-        })
-        .collect::<Vec<Vec<u8>>>();
-
-      _res.extend_from_slice(&_hm_list.join(b"\r\n" as &[u8]));
-      _res.extend_from_slice(b"\r\n\r\n");
+    _res.extend_from_slice(&_hm_list.join(b"\r\n" as &[u8]));
+    _res.extend_from_slice(b"\r\n\r\n");
 
     if let Some(body) = self.body() {
       let _a: &[u8] = body.as_ref();

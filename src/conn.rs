@@ -5,30 +5,34 @@ use futures::Sink;
 use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
+use http::Response;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tower::Service;
 use tracing as log;
 
 #[derive(Debug)]
-pub struct Connection<T> {
+pub struct Connection<T, HT> {
   stream: T,
   writebuf: Vec<u8>,
+  http_service: HT,
 }
 
-impl<T> Connection<T> {
+impl<T, HT> Connection<T, HT> {
   pub fn new(io: T) -> Self
   where
     T: AsyncRead + AsyncWrite + Unpin,
+    HT: Default + Unpin,
   {
     Self {
       stream: io,
       writebuf: vec![],
+      http_service: HT::default(),
     }
   }
 }
 
-impl<T: AsyncRead + Unpin> Stream for Connection<T> {
+impl<T: AsyncRead + Unpin, HT: Unpin> Stream for Connection<T, HT> {
   type Item = Vec<u8>;
 
   fn poll_next(
@@ -42,7 +46,7 @@ impl<T: AsyncRead + Unpin> Stream for Connection<T> {
   }
 }
 
-impl<T: AsyncWrite + Unpin, Item> Sink<Item> for Connection<T>
+impl<T: AsyncWrite + Unpin, Item, HT: Unpin> Sink<Item> for Connection<T, HT>
 where
   Item: Into<Vec<u8>>,
 {
@@ -90,10 +94,14 @@ where
   }
 }
 
-impl<T ,Request> Service<Request> for Connection<T>
+impl<T, Request, HT> Service<Request> for Connection<T, HT>
 where
   Request: Into<http::Request<Option<Bytes>>> + 'static,
   T: AsyncRead + AsyncWrite + Unpin,
+  HT: Service<Request>,
+  HT::Future: Into<Option<Response<Option<Bytes>>>>,
+  HT::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+  HT::Response: 'static,
 {
   type Error = Box<dyn std::error::Error + Send + Sync>;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
@@ -115,19 +123,18 @@ where
     let _req = req.into();
 
     Box::pin(async move {
-
       let payload = "hello".as_bytes();
 
       http::Response::builder()
         .status(200)
         .header("Content-Length", payload.len())
-        .body( Some(Bytes::from(payload)))
+        .body(Some(Bytes::from(payload)))
         .map_err(Into::into)
     })
   }
 }
 
-impl<T> Connection<T>
+impl<T, HT> Connection<T, HT>
 where
   T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -141,9 +148,7 @@ where
       log::info!("engres: {:?}", _a);
 
       // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-      self
-        .send(_a.into_h1_bytes())
-        .await?;
+      self.send(_a.into_h1_bytes()).await?;
     } else {
       log::debug!("request dropped");
     }
