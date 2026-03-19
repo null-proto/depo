@@ -5,34 +5,30 @@ use futures::Sink;
 use futures::SinkExt;
 use futures::Stream;
 use futures::StreamExt;
-use http::Response;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use tower::Service;
 use tracing as log;
 
 #[derive(Debug)]
-pub struct Connection<T, HT> {
+pub struct Connection<T> {
   stream: T,
   writebuf: Vec<u8>,
-  http_service: HT,
 }
 
-impl<T, HT> Connection<T, HT> {
+impl<T> Connection<T> {
   pub fn new(io: T) -> Self
   where
     T: AsyncRead + AsyncWrite + Unpin,
-    HT: Default + Unpin,
   {
     Self {
       stream: io,
       writebuf: vec![],
-      http_service: HT::default(),
     }
   }
 }
 
-impl<T: AsyncRead + Unpin, HT: Unpin> Stream for Connection<T, HT> {
+impl<T: AsyncRead + Unpin> Stream for Connection<T> {
   type Item = Vec<u8>;
 
   fn poll_next(
@@ -46,7 +42,7 @@ impl<T: AsyncRead + Unpin, HT: Unpin> Stream for Connection<T, HT> {
   }
 }
 
-impl<T: AsyncWrite + Unpin, Item, HT: Unpin> Sink<Item> for Connection<T, HT>
+impl<T: AsyncWrite + Unpin, Item> Sink<Item> for Connection<T>
 where
   Item: Into<Vec<u8>>,
 {
@@ -94,14 +90,10 @@ where
   }
 }
 
-impl<T, Request, HT> Service<Request> for Connection<T, HT>
+impl<T ,Request> Service<Request> for Connection<T>
 where
   Request: Into<http::Request<Option<Bytes>>> + 'static,
   T: AsyncRead + AsyncWrite + Unpin,
-  HT: Service<Request>,
-  HT::Future: Into<Option<Response<Option<Bytes>>>>,
-  HT::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-  HT::Response: 'static,
 {
   type Error = Box<dyn std::error::Error + Send + Sync>;
   type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
@@ -120,21 +112,29 @@ where
   }
 
   fn call(&mut self, req: Request) -> Self::Future {
-    let _req = req.into();
+    let _req: http::Request<Option<Bytes>> = req.into();
+
+    // TODO: fix this
+    let url = _req.headers().get(http::header::HOST).unwrap()
+      .to_str()
+      .unwrap()
+      .to_owned();
+
 
     Box::pin(async move {
+
       let payload = "hello".as_bytes();
 
       http::Response::builder()
         .status(200)
-        .header("Content-Length", payload.len())
-        .body(Some(Bytes::from(payload)))
+        .header(http::header::CONTENT_LENGTH, payload.len())
+        .body( Some(Bytes::from(payload)))
         .map_err(Into::into)
     })
   }
 }
 
-impl<T, HT> Connection<T, HT>
+impl<T> Connection<T>
 where
   T: AsyncRead + AsyncWrite + Unpin,
 {
@@ -148,7 +148,9 @@ where
       log::info!("engres: {:?}", _a);
 
       // tokio::time::sleep(tokio::time::Duration::from_secs(20)).await;
-      self.send(_a.into_h1_bytes()).await?;
+      self
+        .send(_a.into_h1_bytes())
+        .await?;
     } else {
       log::debug!("request dropped");
     }

@@ -1,14 +1,19 @@
 use std::pin::Pin;
-
 use bytes::Bytes;
 use http::Response;
+use tokio::net::{TcpSocket, TcpStream};
 use tower::Service;
 
+
 #[derive(Debug,Clone,Default)]
-pub struct HttpService;
+pub struct FetchService;
+
 
 #[allow(unused)]
-impl<Request> Service<Request> for HttpService {
+impl<Request> Service<Request> for FetchService
+where 
+  Request: ToString + 'static,
+{
   type Error = Box<dyn std::error::Error + Send + Sync>;
   type Future = Pin<Box<dyn Future<Output = Result< Self::Response,Self::Error >>>>;
   type Response = Response<Option<Bytes>>;
