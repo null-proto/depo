@@ -2,14 +2,25 @@
 resolver = "3"
 members = ["life"]
 
+
+[workspace.dependencies]
+bytes = { version = "1.11.1", features = ["serde"] }
+tokio = { version = "1.9.0", features = ["full"] }
+tracing = { version = "0.1.44", features = ["async-await"] }
+tracing-subscriber = { version = "0.3.22", features = ["tracing"] }
+futures = "0.3.32"
+
 [package]
 name = "depo"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bytes = { version = "1.11.1", features = ["serde"] }
-futures = "0.3.32"
+bytes.workspace = true
+tokio.workspace = true
+futures.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 h2 = "0.4.13"
 http = "1.4.0"
 httparse = "1.10.1"
@@ -18,8 +29,5 @@ pin-project = "1.1.11"
 rand = "0.10.0"
 rustls = "0.23.37"
 rustls-pemfile = "2.2.0"
-tokio = { version = "1.49.0", features = ["full"] }
 tokio-rustls = "0.26.4"
 tower = { version = "0.5.3", features = ["tokio", "futures-core"] }
-tracing = { version = "0.1.44", features = ["async-await"] }
-tracing-subscriber = { version = "0.3.22", features = ["tracing"] }

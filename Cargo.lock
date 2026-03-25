@@ -440,6 +440,13 @@ checksum = "6800badb6cb2082ffd7b6a67e6125bb39f18782f793520caee8cb8846be06112"
 [[package]]
 name = "life"
 version = "0.1.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "lock_api"
