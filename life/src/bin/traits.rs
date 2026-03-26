@@ -3,6 +3,7 @@
 use std::{
   ffi::c_short,
   fmt::{Debug, Display},
+  sync::Mutex,
 };
 
 trait Trait {
@@ -47,6 +48,50 @@ impl<'real, T> Struct<'real, T> {
   }
 }
 
+#[derive(Debug)]
+struct Mtx {
+  inner: Mutex<String>,
+}
+
+impl Mtx {
+  fn get_string(&mut self) -> &mut str {
+    self.inner.get_mut().unwrap()
+  }
+
+  fn modify(&self, new: &str) {
+    let len = self.inner.lock().unwrap().len();
+    self.inner.lock().unwrap().insert_str(len, new);
+  }
+
+  fn mutation(&self) {
+    *(self.inner.lock().unwrap()) = "mutated".to_owned();
+  }
+}
+
+fn mutext() {
+  let mut m = Mtx {
+    inner: Mutex::new(String::from("data A ")),
+  };
+
+  println!("before : {:#?}", m);
+
+  m.modify("data b");
+
+  println!("after : {:#?}", m);
+
+  let mut ostr: &mut str = m.get_string();
+
+  unsafe {
+    *(ostr.as_mut_ptr().add(2) ) = 55u8;
+  }
+
+  let _ = drop(ostr);
+  println!("after : {:#?}", m);
+
+  m.mutation();
+  println!("after : {:#?}", m);
+}
+
 fn main() {
   let a = 44i32;
   let refs = Refs(&a);
@@ -60,6 +105,7 @@ fn main() {
 
   println!("muted data: {:?}", data);
 
+  mutext();
 }
 
 #[cfg(test)]
