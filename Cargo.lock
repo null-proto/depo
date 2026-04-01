@@ -114,7 +114,6 @@ dependencies = [
  "rustls-pemfile",
  "tokio",
  "tokio-rustls",
- "tower",
  "tracing",
  "tracing-subscriber",
 ]
@@ -444,6 +443,7 @@ dependencies = [
  "bytes",
  "futures",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
