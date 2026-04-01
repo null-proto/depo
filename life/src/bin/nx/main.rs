@@ -1,5 +1,3 @@
-use std::io::IoSlice;
-
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 // #[tokio::main(flavor = "multi_thread")]
@@ -232,7 +230,7 @@ pub struct Response {
   pub frame: Frame,
 }
 
-enum Frame {
+pub enum Frame {
   Error(String),
   Res(String),
   Reset,
@@ -296,7 +294,7 @@ impl Frame {
 
 #[allow(dead_code)]
 impl Request {
-  fn io_slice<'a>(&'a self) -> Vec<u8> {
+  fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
     match &self.frame {
       Frame::Error(e) => {
         let bl = e.as_bytes().len() + 1;
@@ -311,7 +309,7 @@ impl Request {
           ((bl as u8) << 56),
         ];
 
-        let mut data = Vec::new();
+        let mut data = Vec::with_capacity(bl + 9);
 
         data.extend_from_slice(&length);
         data.push(1);
@@ -322,7 +320,7 @@ impl Request {
       Frame::Res(r) => {
         let bl = r.as_bytes().len() + 1;
 
-        let mut data = Vec::new();
+        let mut data = Vec::with_capacity(bl + 9);
 
         let length = [
           (bl as u8),
@@ -340,10 +338,58 @@ impl Request {
         data
       }
 
-      Frame::Reset => vec![0, 0, 0, 0, 0, 0, 0, 2, 0, 0],
+      Frame::Reset => vec![2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     }
   }
 }
 
 #[allow(dead_code)]
-impl Response {}
+impl Response {
+  fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
+    match &self.frame {
+      Frame::Error(e) => {
+        let bl = e.as_bytes().len() + 1;
+
+        let length = [
+          (bl as u8),
+          ((bl as u8) << 8),
+          ((bl as u8) << 16),
+          ((bl as u8) << 24),
+          ((bl as u8) << 40),
+          ((bl as u8) << 48),
+          ((bl as u8) << 56),
+        ];
+
+        let mut data = Vec::with_capacity(bl + 9);
+
+        data.extend_from_slice(&length);
+        data.push(1);
+        data.extend_from_slice(&e.as_bytes());
+
+        data
+      }
+      Frame::Res(r) => {
+        let bl = r.as_bytes().len() + 1;
+
+        let mut data = Vec::with_capacity(bl + 9);
+
+        let length = [
+          (bl as u8),
+          ((bl as u8) << 8),
+          ((bl as u8) << 16),
+          ((bl as u8) << 24),
+          ((bl as u8) << 40),
+          ((bl as u8) << 48),
+          ((bl as u8) << 56),
+        ];
+
+        data.extend_from_slice(&length);
+        data.push(2);
+        data.extend_from_slice(&r.as_bytes());
+        data
+      }
+
+      Frame::Reset => vec![2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    }
+  }
+}
