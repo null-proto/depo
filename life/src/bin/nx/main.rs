@@ -185,7 +185,7 @@ mod server {
       Self { stream }
     }
 
-    fn handle(&mut self) -> Result<(),Box<dyn std::error::Error + Send + Sync>> {
+    fn handle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       todo!()
     }
   }
@@ -210,7 +210,7 @@ mod server {
         let res = match req.into_frame() {
           Frame::Error(_) => Frame::new_err("Client Error".to_owned()),
           Frame::Res(_) => Frame::new_res("ok".to_owned()),
-          Frame::Done => Frame::done(),
+          Frame::Reset => Frame::done(),
         };
 
         Ok(res)
@@ -235,7 +235,7 @@ pub struct Response {
 enum Frame {
   Error(String),
   Res(String),
-  Done,
+  Reset,
 }
 
 trait IntoRequest {
@@ -280,7 +280,9 @@ impl Frame {
   }
 
   fn done() -> Response {
-    Response { frame: Frame::Done }
+    Response {
+      frame: Frame::Reset,
+    }
   }
 
   fn into_res(self) -> Response {
@@ -294,60 +296,54 @@ impl Frame {
 
 #[allow(dead_code)]
 impl Request {
-  fn io_slice<'a>(&'a self) -> [std::io::IoSlice<'a>; 2] {
-    use std::io::IoSlice;
-    match &self.frame {
-      Frame::Error(e) => [IoSlice::new(&[0u8]), IoSlice::new(e.as_bytes())],
-      Frame::Res(r) => [IoSlice::new(&[0u8]), IoSlice::new(r.as_bytes())],
-      Frame::Done => [IoSlice::new(&[0u8]), IoSlice::new(&[0u8])],
-    }
-  }
-
-  fn as_ref(&self) -> Vec<u8> {
+  fn io_slice<'a>(&'a self) -> Vec<u8> {
     match &self.frame {
       Frame::Error(e) => {
-        let mut v = vec![1u8];
-        v.extend_from_slice(e.as_bytes());
-        v
+        let bl = e.as_bytes().len() + 1;
+
+        let length = [
+          (bl as u8),
+          ((bl as u8) << 8),
+          ((bl as u8) << 16),
+          ((bl as u8) << 24),
+          ((bl as u8) << 40),
+          ((bl as u8) << 48),
+          ((bl as u8) << 56),
+        ];
+
+        let mut data = Vec::new();
+
+        data.extend_from_slice(&length);
+        data.push(1);
+        data.extend_from_slice(&e.as_bytes());
+
+        data
       }
       Frame::Res(r) => {
-        let mut v = vec![2u8];
-        v.extend_from_slice(r.as_bytes());
-        v
+        let bl = r.as_bytes().len() + 1;
+
+        let mut data = Vec::new();
+
+        let length = [
+          (bl as u8),
+          ((bl as u8) << 8),
+          ((bl as u8) << 16),
+          ((bl as u8) << 24),
+          ((bl as u8) << 40),
+          ((bl as u8) << 48),
+          ((bl as u8) << 56),
+        ];
+
+        data.extend_from_slice(&length);
+        data.push(2);
+        data.extend_from_slice(&r.as_bytes());
+        data
       }
-      Frame::Done => {
-        vec![0u8]
-      }
+
+      Frame::Reset => vec![0, 0, 0, 0, 0, 0, 0, 2, 0, 0],
     }
   }
 }
 
 #[allow(dead_code)]
-impl Response {
-  fn io_slice<'a>(&'a self) -> [std::io::IoSlice<'a>; 2] {
-    use std::io::IoSlice;
-    match &self.frame {
-      Frame::Error(e) => [IoSlice::new(&[0u8]), IoSlice::new(e.as_bytes())],
-      Frame::Res(r) => [IoSlice::new(&[0u8]), IoSlice::new(r.as_bytes())],
-      Frame::Done => [IoSlice::new(&[0u8]), IoSlice::new(&[0u8])],
-    }
-  }
-
-  fn as_ref(&self) -> Vec<u8> {
-    match &self.frame {
-      Frame::Error(e) => {
-        let mut v = vec![1u8];
-        v.extend_from_slice(e.as_bytes());
-        v
-      }
-      Frame::Res(r) => {
-        let mut v = vec![2u8];
-        v.extend_from_slice(r.as_bytes());
-        v
-      }
-      Frame::Done => {
-        vec![0u8]
-      }
-    }
-  }
-}
+impl Response {}
