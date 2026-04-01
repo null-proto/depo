@@ -174,12 +174,21 @@ mod server {
   /// basic server
   pub struct Server {
     stream: tokio::net::UnixStream,
-    read_switch: bool,
   }
 
+  use crate::Frame;
   use std::pin::Pin;
   use tower::Service;
-  use crate::Frame;
+
+  impl Server {
+    fn new(stream: tokio::net::UnixStream) -> Self {
+      Self { stream }
+    }
+
+    fn handle(&mut self) -> Result<(),Box<dyn std::error::Error + Send + Sync>> {
+      todo!()
+    }
+  }
 
   impl<Request> Service<Request> for Server
   where
@@ -193,26 +202,18 @@ mod server {
       &mut self,
       cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-      if self.read_switch {
-        self.stream.poll_read_ready(cx)
-      } else {
-        self.stream.poll_write_ready(cx)
-      }
-      .map_err(|e| e.into())
+      self.stream.poll_read_ready(cx).map_err(|e| e.into())
     }
 
     fn call(&mut self, req: Request) -> Self::Future {
       Box::pin(async move {
-
-        match req.into_frame() {
-          Frame::Error(_) =>{}
-          Frame::Res(_) => {}
-          Frame::Done => {
-
-          }
+        let res = match req.into_frame() {
+          Frame::Error(_) => Frame::new_err("Client Error".to_owned()),
+          Frame::Res(_) => Frame::new_res("ok".to_owned()),
+          Frame::Done => Frame::done(),
         };
 
-        Ok(Frame::done())
+        Ok(res)
       })
     }
   }
