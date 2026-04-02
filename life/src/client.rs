@@ -22,11 +22,11 @@ async fn main() {
       tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
 
-    if let Ok(conn) = tokio::net::UnixStream::connect(&path).await {
-      reconnect = client_handler(conn).await.is_err();
+    reconnect = if let Ok(conn) = tokio::net::UnixStream::connect(&path).await {
+      client_handler(conn).await.is_err()
     } else {
       tracing::error!("connection failed");
-      reconnect = true;
+      true
     }
   }
 }
@@ -37,7 +37,7 @@ async fn client_handler(
   tracing::info!(target :"client" , "connection established {conn:?}");
   let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
 
-  conn.write(b"client hello\n").await?;
+  conn.write( &Frame::new_req(String::from("client hello")).into_vec_u8()).await?;
   conn.flush().await?;
 
   let (read, mut write) = conn.into_split();
@@ -55,7 +55,7 @@ async fn client_handler(
             write.flush().await?;
             break;
           } else {
-            write.write(s2.as_bytes()).await?;
+            write.write( &Frame::new_req(s2.clone()).into_vec_u8()).await?;
             write.flush().await?;
             s2.truncate(0);
           }

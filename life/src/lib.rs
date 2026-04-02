@@ -33,7 +33,6 @@ pub mod server {
 
       Ok(())
     }
-
   }
 
   impl<Request> Service<Request> for Server
@@ -58,15 +57,13 @@ pub mod server {
             tracing::warn!("FR:ERR c : {}", err);
             Frame::new_err("Client Error".to_owned())
           }
-          Frame::Res(s) => {
-            match s.as_str() {
-              "client hello" => Frame::new_res(String::from("server hello")),
-              s if s.starts_with("echo ") => {
-                tracing::info!( target: "server" ,"exec: {}", s);
-                Frame::new_res(String::from("ok"))
-              },
-              _ => Frame::new_err(String::from("not allowed."))
+          Frame::Res(s) => match s.as_str() {
+            "client hello" => Frame::new_res(String::from("server hello")),
+            s if s.starts_with("echo ") => {
+              tracing::info!( target: "server" ,"exec: {}", s);
+              Frame::new_res(String::from("ok"))
             }
+            _ => Frame::new_err(String::from("not allowed.")),
           },
 
           Frame::Reset => {
@@ -163,13 +160,13 @@ impl Request {
         let bl = e.as_bytes().len() + 1;
 
         let length = [
-          (bl as u8),
-          ((bl >> 8) as u8),
-          ((bl >> 16) as u8),
-          ((bl >> 24) as u8),
-          ((bl >> 40) as u8),
-          ((bl >> 48) as u8),
           ((bl >> 56) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 8) as u8),
+          (bl as u8),
         ];
 
         let mut data = Vec::with_capacity(bl + 9);
@@ -186,13 +183,13 @@ impl Request {
         let mut data = Vec::with_capacity(bl + 9);
 
         let length = [
-          (bl as u8),
-          ((bl >> 8) as u8),
-          ((bl >> 16) as u8),
-          ((bl >> 24) as u8),
-          ((bl >> 40) as u8),
-          ((bl >> 48) as u8),
           ((bl >> 56) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 8) as u8),
+          (bl as u8),
         ];
 
         data.extend_from_slice(&length);
@@ -257,6 +254,17 @@ impl Request {
       | ((buf[5] as u64) << 40)
       | ((buf[6] as u64) << 48)
       | ((buf[7] as u64) << 56)) as usize;
+
+    if length > 2usize.pow(20) {
+      return Err(Box::new(std::io::Error::new(
+        std::io::ErrorKind::OutOfMemory,
+        format!(
+          "cannot allocate 0x{:0>16x?} or {} Mb",
+          length,
+          length / 1024 * 1024
+        ),
+      )));
+    }
 
     let mut buf2 = vec![0u8; length];
 
