@@ -6,7 +6,8 @@ pub mod server {
     stream: tokio::net::UnixStream,
   }
 
-  use crate::{Frame, Request};
+  use crate::Frame;
+  use crate::Request;
   use std::pin::Pin;
   use tokio::io::AsyncWriteExt;
   use tower::Service;
@@ -17,13 +18,22 @@ pub mod server {
     }
 
     pub async fn handle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-      let req = Request::read_from(&mut self.stream).await?;
-      let res = self.call(req).await?;
-      let s = res.into_vec_u8();
-      self.stream.write_all(&s).await?;
-      self.stream.flush().await?;
+      loop {
+        let req = Request::read_from(&mut self.stream).await?;
+        let res = self.call(req).await?;
+        let s = res.into_vec_u8();
+        self.stream.write_all(&s).await?;
+        self.stream.flush().await?;
+
+        match res.frame {
+          Frame::Reset | Frame::Error(_) => break,
+          _ => {}
+        };
+      }
+
       Ok(())
     }
+
   }
 
   impl<Request> Service<Request> for Server
@@ -44,9 +54,25 @@ pub mod server {
     fn call(&mut self, req: Request) -> Self::Future {
       Box::pin(async move {
         let res = match req.into_frame() {
-          Frame::Error(_) => Frame::new_err("Client Error".to_owned()),
-          Frame::Res(_) => Frame::new_res("ok".to_owned()),
-          Frame::Reset => Frame::done(),
+          Frame::Error(err) => {
+            tracing::warn!("FR:ERR c : {}", err);
+            Frame::new_err("Client Error".to_owned())
+          }
+          Frame::Res(s) => {
+            match s.as_str() {
+              "client hello" => Frame::new_res(String::from("server hello")),
+              s if s.starts_with("echo ") => {
+                tracing::info!( target: "server" ,"exec: {}", s);
+                Frame::new_res(String::from("ok"))
+              },
+              _ => Frame::new_err(String::from("not allowed."))
+            }
+          },
+
+          Frame::Reset => {
+            tracing::warn!("FR:RST connection ");
+            Frame::done()
+          }
         };
 
         Ok(res)
@@ -95,37 +121,36 @@ unsafe impl Sync for Request {}
 unsafe impl Send for Response {}
 unsafe impl Sync for Response {}
 
-#[allow(dead_code)]
 impl Frame {
-  fn new_req(s: String) -> Request {
+  pub fn new_req(s: String) -> Request {
     Request {
       frame: Frame::Res(s),
     }
   }
 
-  fn new_err(s: String) -> Response {
+  pub fn new_err(s: String) -> Response {
     Response {
       frame: Frame::Error(s),
     }
   }
 
-  fn new_res(s: String) -> Response {
+  pub fn new_res(s: String) -> Response {
     Response {
       frame: Frame::Res(s),
     }
   }
 
-  fn done() -> Response {
+  pub fn done() -> Response {
     Response {
       frame: Frame::Reset,
     }
   }
 
-  fn into_res(self) -> Response {
+  pub fn into_res(self) -> Response {
     Response { frame: self }
   }
 
-  fn into_req(self) -> Request {
+  pub fn into_req(self) -> Request {
     Request { frame: self }
   }
 }

@@ -7,6 +7,10 @@ async fn main() {
 
   let path = std::path::PathBuf::from("/tmp/sock.0");
 
+  if path.exists() {
+    std::fs::remove_file(&path).unwrap();
+  }
+
   let listener = tokio::net::UnixListener::bind(&path).unwrap();
 
   tracing::info!(target: "server","server initiated: listeng at {:?}", path);

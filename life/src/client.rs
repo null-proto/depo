@@ -1,8 +1,5 @@
 use life::Frame;
-use life::Request;
-use life::Response;
 use tokio::io::AsyncBufReadExt;
-use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
 #[tokio::main(flavor = "current_thread")]
@@ -13,28 +10,28 @@ async fn main() {
 
   let path = std::path::PathBuf::from("/tmp/sock.0");
 
-  tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+  if !path.exists() {
+    panic!("unix socket not found at {}", path.display());
+  }
 
-  if let Ok(conn) = tokio::net::UnixStream::connect(&path).await {
-    tracing::info!(target :"client" , "client initiated with config: path = {}", path.display());
-    match client_write_handler(conn).await {
-      Err(err) => {
-        if let Some(err) = err.downcast_ref::<tokio::io::Error>() {
-          tracing::error!( target: "client", "c: {:?} {}", path, err);
-        }
-      }
+  let mut reconnect = false;
 
-      _ => {
-        tracing::warn!(target: "client", "connection satisfied: {path:?}");
-      }
+  loop {
+    if reconnect {
+      tracing::info!("Retrying in 2s");
+      tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     }
-  } else {
-    tracing::error!(target :"client" , "connection failed");
+
+    if let Ok(conn) = tokio::net::UnixStream::connect(&path).await {
+      reconnect = client_handler(conn).await.is_err();
+    } else {
+      tracing::error!("connection failed");
+      reconnect = true;
+    }
   }
 }
 
-#[allow(unreachable_code)]
-async fn client_write_handler(
+async fn client_handler(
   mut conn: tokio::net::UnixStream,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
   tracing::info!(target :"client" , "connection established {conn:?}");
@@ -45,34 +42,42 @@ async fn client_write_handler(
 
   let (read, mut write) = conn.into_split();
 
-  let writer = tokio::spawn(async move {
-    let mut s2 = String::new();
-    loop {
-      stdin.read_line(&mut s2).await.unwrap();
+  let writer: tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
+    tokio::spawn(async move {
+      let mut s2 = String::new();
 
-      if !s2.is_empty() {
-        if s2 == "exit" {
-          std::process::exit(0);
-        } else {
-          write.write(s2.as_bytes()).await.unwrap();
-          write.flush().await.unwrap();
-          s2.truncate(0);
+      loop {
+        stdin.read_line(&mut s2).await?;
+
+        if !s2.is_empty() {
+          if s2 == "exit" {
+            write.write(&Frame::done().into_vec_u8()).await?;
+            write.flush().await?;
+            break;
+          } else {
+            write.write(s2.as_bytes()).await?;
+            write.flush().await?;
+            s2.truncate(0);
+          }
         }
       }
-    }
-  });
 
-  let reader = tokio::spawn(async move {
-    let read_buf = tokio::io::BufReader::new(read);
+      Ok(())
+    });
 
-    let mut lines = read_buf.lines();
+  let reader: tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
+    tokio::spawn(async move {
+      let read_buf = tokio::io::BufReader::new(read);
+      let mut lines = read_buf.lines();
+      while let Some(s) = lines.next_line().await? {
+        tracing::info!(target: "client" , "R {s:?}")
+      }
 
-    while let Some(s) = lines.next_line().await.unwrap() {
-      tracing::info!(target: "client" , "R {s:?}")
-    }
-  });
+      Ok(())
+    });
 
-  _ = tokio::join![writer, reader];
-
-  Ok(())
+  Ok(tokio::select! {
+   _ = reader => {},
+   _ = writer => {},
+  })
 }
