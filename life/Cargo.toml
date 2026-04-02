@@ -2,6 +2,11 @@
 name = "life"
 version = "0.1.0"
 edition = "2024"
+auto-bins = false
+
+[[bin]]
+name = "client"
+path = "src/client.rs"
 
 [dependencies]
 bytes.workspace = true

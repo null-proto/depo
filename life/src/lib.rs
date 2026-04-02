@@ -1,24 +1,28 @@
-use tokio::io::AsyncReadExt as _;
-
-
 /// Services
-mod server {
+pub mod server {
   /// basic server
+  #[derive(Debug)]
   pub struct Server {
     stream: tokio::net::UnixStream,
   }
 
-  use crate::Frame;
+  use crate::{Frame, Request};
   use std::pin::Pin;
+  use tokio::io::AsyncWriteExt;
   use tower::Service;
 
   impl Server {
-    fn new(stream: tokio::net::UnixStream) -> Self {
+    pub fn new(stream: tokio::net::UnixStream) -> Self {
       Self { stream }
     }
 
-    fn handle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-      todo!()
+    pub async fn handle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+      let req = Request::read_from(&mut self.stream).await?;
+      let res = self.call(req).await?;
+      let s = res.into_vec_u8();
+      self.stream.write_all(&s).await?;
+      self.stream.flush().await?;
+      Ok(())
     }
   }
 
@@ -50,8 +54,6 @@ mod server {
     }
   }
 }
-
-
 
 /// REQUEST - RESPONSE
 ///
@@ -130,19 +132,19 @@ impl Frame {
 
 #[allow(dead_code)]
 impl Request {
-  fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
+  pub fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
     match &self.frame {
       Frame::Error(e) => {
         let bl = e.as_bytes().len() + 1;
 
         let length = [
           (bl as u8),
-          ((bl as u8) << 8),
-          ((bl as u8) << 16),
-          ((bl as u8) << 24),
-          ((bl as u8) << 40),
-          ((bl as u8) << 48),
-          ((bl as u8) << 56),
+          ((bl >> 8) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 56) as u8),
         ];
 
         let mut data = Vec::with_capacity(bl + 9);
@@ -160,13 +162,12 @@ impl Request {
 
         let length = [
           (bl as u8),
-          ((bl as u8) << 8),
-          ((bl as u8) << 16),
-          ((bl as u8) << 24),
-          ((bl as u8) << 32),
-          ((bl as u8) << 40),
-          ((bl as u8) << 48),
-          ((bl as u8) << 56),
+          ((bl >> 8) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 56) as u8),
         ];
 
         data.extend_from_slice(&length);
@@ -215,9 +216,10 @@ impl Request {
     Some(Self { frame: t })
   }
 
-  pub async fn read_from(
-    stream: &mut tokio::net::UnixStream,
-  ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+  pub async fn read_from<T>(mut stream: T) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>
+  where
+    T: tokio::io::AsyncReadExt + Unpin,
+  {
     let mut buf = [0u8; 8];
 
     stream.read_exact(&mut buf).await?;
@@ -244,19 +246,19 @@ impl Request {
 
 #[allow(dead_code)]
 impl Response {
-  fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
+  pub fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
     match &self.frame {
       Frame::Error(e) => {
         let bl = e.as_bytes().len() + 1;
 
         let length = [
           (bl as u8),
-          ((bl as u8) << 8),
-          ((bl as u8) << 16),
-          ((bl as u8) << 24),
-          ((bl as u8) << 40),
-          ((bl as u8) << 48),
-          ((bl as u8) << 56),
+          ((bl >> 8) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 56) as u8),
         ];
 
         let mut data = Vec::with_capacity(bl + 9);
@@ -274,12 +276,12 @@ impl Response {
 
         let length = [
           (bl as u8),
-          ((bl as u8) << 8),
-          ((bl as u8) << 16),
-          ((bl as u8) << 24),
-          ((bl as u8) << 40),
-          ((bl as u8) << 48),
-          ((bl as u8) << 56),
+          ((bl >> 8) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 56) as u8),
         ];
 
         data.extend_from_slice(&length);
@@ -317,9 +319,10 @@ impl Response {
     Some(Self { frame: t })
   }
 
-  pub async fn read_from(
-    stream: &mut tokio::net::UnixStream,
-  ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+  pub async fn read_from<T>(mut stream: T) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>
+  where
+    T: tokio::io::AsyncReadExt + Unpin,
+  {
     let mut buf = [0u8; 8];
 
     stream.read_exact(&mut buf).await?;
