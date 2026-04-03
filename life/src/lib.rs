@@ -205,7 +205,7 @@ impl Request {
         data
       }
 
-      Frame::Reset => vec![2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      Frame::Reset => vec![0; 9],
     }
   }
 
@@ -345,7 +345,7 @@ impl Response {
         data
       }
 
-      Frame::Reset => vec![2, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      Frame::Reset => vec![0; 9],
     }
   }
 
@@ -401,10 +401,6 @@ impl Response {
         ),
       )));
     }
-
-    let mut buf2 = vec![0u8; length];
-
-    stream.read_exact(&mut buf2).await?;
 
     match buf[8] {
       0 => Ok(Frame::Reset),

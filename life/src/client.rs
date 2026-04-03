@@ -1,6 +1,8 @@
 use life::Frame;
 use life::Response;
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncRead;
+use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 
 #[tokio::main(flavor = "current_thread")]
@@ -100,23 +102,24 @@ async fn client_m_handler(
   })
 }
 
-async fn client_handler(
-  mut conn: tokio::net::UnixStream,
+async fn handshake<T: AsyncWrite + AsyncRead + Unpin>(
+  mut conn: T
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-  tracing::info!(target :"client" , "*** connection established");
-  let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
-  let mut stdout = tokio::io::stdout();
-  let mut s2 = String::new();
-
   conn
-    .write(&Frame::new_req(String::from("client hello")).into_vec_u8())
+    .write_all(&Frame::new_req(String::from("client hello")).into_vec_u8())
     .await?;
   conn.flush().await?;
 
-  let res = Response::read_from(&mut conn).await?;
-  tracing::info!(target: "ingress" , "{res}");
+  let res: Result< Response, Box<dyn std::error::Error + Send + Sync> > = tokio::select! {
+    res = Response::read_from(&mut conn) => { res },
+    _ = tokio::time::sleep(std::time::Duration::from_secs(3)) => {
+      Err(Box::new(
+              std::io::Error::new(std::io::ErrorKind::TimedOut, "handshake timeout")
+            ).into())
+    }
+  };
 
-  match res.frame {
+  match res?.frame {
     Frame::Error(e) => {
       tracing::error!("*** handshake error, {}", e);
     }
@@ -134,8 +137,21 @@ async fn client_handler(
     }
   };
 
+  Ok(())
+}
+
+async fn client_handler(
+  mut conn: tokio::net::UnixStream,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+  tracing::info!(target :"client" , "*** connection established");
+  let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
+  let mut stdout = tokio::io::stdout();
+  let mut s2 = String::new();
+
+  handshake(&mut conn).await?;
+
   loop {
-    stdout.write(b" SEND > ").await?;
+    stdout.write(b"SEND > ").await?;
     stdout.flush().await?;
 
     stdin.read_line(&mut s2).await?;
@@ -152,9 +168,11 @@ async fn client_handler(
           .await?;
         conn.flush().await?;
       }
+      tracing::debug!("*** completely send off, {:?}", s2);
+      s2.truncate(0);
+    } else {
+      continue;
     }
-    tracing::debug!("*** completely send off, {:?}", s2);
-    s2.truncate(0);
 
     let res = Response::read_from(&mut conn).await?;
     tracing::info!(target: "ingress" , "{res}");
