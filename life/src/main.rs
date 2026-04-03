@@ -1,8 +1,32 @@
 // #[tokio::main(flavor = "multi_thread")]
+//
+//
+
+struct LogTime {
+  inner: tokio::time::Instant,
+}
+
+impl LogTime {
+  fn new() -> Self {
+    Self {
+      inner: tokio::time::Instant::now(),
+    }
+  }
+}
+
+impl tracing_subscriber::fmt::time::FormatTime for LogTime {
+  fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+    let elapsed = self.inner.elapsed().as_secs();
+    write!(w, "{}s", elapsed)
+  }
+}
+
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
   tracing_subscriber::fmt::fmt()
     .with_max_level(tracing::Level::TRACE)
+    .with_timer(LogTime::new())
     .init();
 
   let path = std::path::PathBuf::from("/tmp/sock.0");
@@ -18,7 +42,7 @@ async fn main() {
     let stream = listener.accept().await;
     tokio::spawn(async move {
       if let Ok((stream, addr)) = stream {
-        tracing::info!(target: "server","connect established: {:?}", addr);
+        tracing::info!(target: "server","*** connect established: {:?}", addr);
 
         let mut conn = life::server::Server::new(stream);
 
@@ -26,17 +50,17 @@ async fn main() {
           match conn.handle().await {
             Err(err) => {
               if let Some(err) = err.downcast_ref::<tokio::io::Error>() {
-                tracing::error!( target: "server", "c: {:?} {}", addr, err);
+                tracing::error!( target: "server", "*** connection exit, {}", err.to_string());
               }
             }
 
             _ => {
-              tracing::warn!(target: "server", "connection satisfied: {addr:?}");
+              tracing::warn!(target: "server", "*** connection exit");
             }
           }
         });
       } else {
-        tracing::error!("connect failed to establish: hard reset")
+        tracing::error!("??? connection failed")
       }
     });
   }

@@ -2,7 +2,7 @@
 name = "life"
 version = "0.1.0"
 edition = "2024"
-auto-bins = false
+autobins = true
 
 [[bin]]
 name = "client"

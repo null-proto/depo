@@ -1,13 +1,13 @@
 /// Services
 pub mod server {
   /// basic server
-  #[derive(Debug)]
   pub struct Server {
     stream: tokio::net::UnixStream,
   }
 
   use crate::Frame;
   use crate::Request;
+  use std::fmt::Display;
   use std::pin::Pin;
   use tokio::io::AsyncWriteExt;
   use tower::Service;
@@ -20,15 +20,25 @@ pub mod server {
     pub async fn handle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
       loop {
         let req = Request::read_from(&mut self.stream).await?;
-        let res = self.call(req).await?;
-        let s = res.into_vec_u8();
-        self.stream.write_all(&s).await?;
-        self.stream.flush().await?;
-
-        match res.frame {
-          Frame::Reset | Frame::Error(_) => break,
-          _ => {}
+        let res = self.call(req).await;
+        match res {
+          Err(e) => {
+            self
+              .stream
+              .write_all(&Frame::new_err(e.to_string()).into_vec_u8())
+              .await?;
+          }
+          Ok(res) => {
+            tracing::info!(target: "engress", "<<< {}", res);
+            self.stream.write_all(&res.into_vec_u8()).await?;
+            match res.frame {
+              Frame::Reset | Frame::Error(_) => break,
+              _ => {}
+            }
+          }
         };
+        self.stream.flush().await?;
+        tracing::debug!(target : "server","*** response completely send off");
       }
 
       Ok(())
@@ -37,7 +47,7 @@ pub mod server {
 
   impl<Request> Service<Request> for Server
   where
-    Request: super::IntoRequest + 'static + Send + Sync,
+    Request: super::IntoRequest + 'static + Send + Sync + Display,
   {
     type Error = Box<dyn std::error::Error + Send + Sync>;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send + Sync>>;
@@ -51,25 +61,20 @@ pub mod server {
     }
 
     fn call(&mut self, req: Request) -> Self::Future {
+      tracing::info!(target: "ingress", ">>> {}", req);
+
       Box::pin(async move {
         let res = match req.into_frame() {
-          Frame::Error(err) => {
-            tracing::warn!("FR:ERR c : {}", err);
-            Frame::new_err("Client Error".to_owned())
-          }
+          Frame::Error(_) => Frame::new_err("client error".to_owned()),
           Frame::Res(s) => match s.as_str() {
-            "client hello" => Frame::new_res(String::from("server hello")),
-            s if s.starts_with("echo ") => {
-              tracing::info!( target: "server" ,"exec: {}", s);
-              Frame::new_res(String::from("ok"))
+            "client hello" => Frame::new_res("server hello".to_owned()),
+            _ => {
+              tracing::debug!( target: "server" ,"what: {:?}", s);
+              Frame::new_err("what ?".to_owned())
             }
-            _ => Frame::new_err(String::from("not allowed.")),
           },
 
-          Frame::Reset => {
-            tracing::warn!("FR:RST connection ");
-            Frame::done()
-          }
+          Frame::Reset => Frame::done(),
         };
 
         Ok(res)
@@ -97,7 +102,7 @@ pub enum Frame {
   Reset,
 }
 
-trait IntoRequest {
+pub trait IntoRequest {
   fn into_frame(self) -> Frame;
 
   fn into_req(self) -> Request;
@@ -157,12 +162,13 @@ impl Request {
   pub fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
     match &self.frame {
       Frame::Error(e) => {
-        let bl = e.as_bytes().len() + 1;
+        let bl = e.as_bytes().len();
 
         let length = [
           ((bl >> 56) as u8),
           ((bl >> 48) as u8),
           ((bl >> 40) as u8),
+          ((bl >> 32) as u8),
           ((bl >> 24) as u8),
           ((bl >> 16) as u8),
           ((bl >> 8) as u8),
@@ -178,7 +184,7 @@ impl Request {
         data
       }
       Frame::Res(r) => {
-        let bl = r.as_bytes().len() + 1;
+        let bl = r.as_bytes().len();
 
         let mut data = Vec::with_capacity(bl + 9);
 
@@ -186,6 +192,7 @@ impl Request {
           ((bl >> 56) as u8),
           ((bl >> 48) as u8),
           ((bl >> 40) as u8),
+          ((bl >> 32) as u8),
           ((bl >> 24) as u8),
           ((bl >> 16) as u8),
           ((bl >> 8) as u8),
@@ -203,7 +210,7 @@ impl Request {
   }
 
   fn from<'a>(d: &'a [u8]) -> Option<Self> {
-    let ll = d.get(0..7)?;
+    let ll = d.get(0..=7)?;
 
     let length: usize = ((ll[0] as u64)
       | ((ll[1] as u64) << 8)
@@ -242,18 +249,18 @@ impl Request {
   where
     T: tokio::io::AsyncReadExt + Unpin,
   {
-    let mut buf = [0u8; 8];
+    let mut buf = [0u8; 9];
 
     stream.read_exact(&mut buf).await?;
 
-    let length: usize = ((buf[0] as u64)
-      | ((buf[1] as u64) << 8)
-      | ((buf[2] as u64) << 16)
-      | ((buf[3] as u64) << 24)
-      | ((buf[4] as u64) << 32)
-      | ((buf[5] as u64) << 40)
-      | ((buf[6] as u64) << 48)
-      | ((buf[7] as u64) << 56)) as usize;
+    let length: usize = ((buf[7] as u64)
+      | ((buf[6] as u64) << 8)
+      | ((buf[5] as u64) << 16)
+      | ((buf[4] as u64) << 24)
+      | ((buf[3] as u64) << 32)
+      | ((buf[2] as u64) << 40)
+      | ((buf[1] as u64) << 48)
+      | ((buf[0] as u64) << 56)) as usize;
 
     if length > 2usize.pow(20) {
       return Err(Box::new(std::io::Error::new(
@@ -266,14 +273,27 @@ impl Request {
       )));
     }
 
-    let mut buf2 = vec![0u8; length];
-
-    stream.read_exact(&mut buf2).await?;
-
-    Self::from(&buf).ok_or(Box::new(std::io::Error::new(
-      std::io::ErrorKind::ConnectionReset,
-      "cannot parse this message",
-    )))
+    match buf[8] {
+      0 => Ok(Frame::Reset),
+      1 => {
+        let mut buf2 = vec![0u8; length];
+        stream.read_exact(&mut buf2).await?;
+        Ok(Frame::Error(String::from_utf8(buf2)?))
+      }
+      2 => {
+        let mut buf2 = vec![0u8; length];
+        stream.read_exact(&mut buf2).await?;
+        Ok(Frame::Res(String::from_utf8(buf2)?))
+      }
+      _ => Err(
+        Box::new(std::io::Error::new(
+          std::io::ErrorKind::ConnectionReset,
+          "cannot parse this message",
+        ))
+        .into(),
+      ),
+    }
+    .map(|i| Self { frame: i })
   }
 }
 
@@ -282,16 +302,17 @@ impl Response {
   pub fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
     match &self.frame {
       Frame::Error(e) => {
-        let bl = e.as_bytes().len() + 1;
+        let bl = e.as_bytes().len();
 
         let length = [
-          (bl as u8),
-          ((bl >> 8) as u8),
-          ((bl >> 16) as u8),
-          ((bl >> 24) as u8),
-          ((bl >> 40) as u8),
-          ((bl >> 48) as u8),
           ((bl >> 56) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 32) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 8) as u8),
+          (bl as u8),
         ];
 
         let mut data = Vec::with_capacity(bl + 9);
@@ -303,18 +324,19 @@ impl Response {
         data
       }
       Frame::Res(r) => {
-        let bl = r.as_bytes().len() + 1;
+        let bl = r.as_bytes().len();
 
         let mut data = Vec::with_capacity(bl + 9);
 
         let length = [
-          (bl as u8),
-          ((bl >> 8) as u8),
-          ((bl >> 16) as u8),
-          ((bl >> 24) as u8),
-          ((bl >> 40) as u8),
-          ((bl >> 48) as u8),
           ((bl >> 56) as u8),
+          ((bl >> 48) as u8),
+          ((bl >> 40) as u8),
+          ((bl >> 32) as u8),
+          ((bl >> 24) as u8),
+          ((bl >> 16) as u8),
+          ((bl >> 8) as u8),
+          (bl as u8),
         ];
 
         data.extend_from_slice(&length);
@@ -356,26 +378,82 @@ impl Response {
   where
     T: tokio::io::AsyncReadExt + Unpin,
   {
-    let mut buf = [0u8; 8];
+    let mut buf = [0u8; 9];
 
     stream.read_exact(&mut buf).await?;
 
-    let length: usize = ((buf[0] as u64)
-      | ((buf[1] as u64) << 8)
-      | ((buf[2] as u64) << 16)
-      | ((buf[3] as u64) << 24)
-      | ((buf[4] as u64) << 32)
-      | ((buf[5] as u64) << 40)
-      | ((buf[6] as u64) << 48)
-      | ((buf[7] as u64) << 56)) as usize;
+    let length: usize = ((buf[7] as u64)
+      | ((buf[6] as u64) << 8)
+      | ((buf[5] as u64) << 16)
+      | ((buf[4] as u64) << 24)
+      | ((buf[3] as u64) << 32)
+      | ((buf[2] as u64) << 40)
+      | ((buf[1] as u64) << 48)
+      | ((buf[0] as u64) << 56)) as usize;
+
+    if length > 2usize.pow(20) {
+      return Err(Box::new(std::io::Error::new(
+        std::io::ErrorKind::OutOfMemory,
+        format!(
+          "cannot allocate 0x{:0>16x?} or {} Mb",
+          length,
+          length / 1024 * 1024
+        ),
+      )));
+    }
 
     let mut buf2 = vec![0u8; length];
 
     stream.read_exact(&mut buf2).await?;
 
-    Self::from(&buf).ok_or(Box::new(std::io::Error::new(
-      std::io::ErrorKind::ConnectionReset,
-      "cannot parse this message",
-    )))
+    match buf[8] {
+      0 => Ok(Frame::Reset),
+      1 => {
+        let mut buf2 = vec![0u8; length];
+        stream.read_exact(&mut buf2).await?;
+        Ok(Frame::Error(String::from_utf8(buf2)?))
+      }
+      2 => {
+        let mut buf2 = vec![0u8; length];
+        stream.read_exact(&mut buf2).await?;
+        Ok(Frame::Res(String::from_utf8(buf2)?))
+      }
+      _ => Err(
+        Box::new(std::io::Error::new(
+          std::io::ErrorKind::ConnectionReset,
+          "cannot parse this message",
+        ))
+        .into(),
+      ),
+    }
+    .map(|i| Self { frame: i })
+  }
+}
+
+impl std::fmt::Display for Response {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{}",
+      match &self.frame {
+        Frame::Reset => format!("RESET"),
+        Frame::Res(s) => format!("RES: {s}"),
+        Frame::Error(s) => format!("Error: {s}"),
+      }
+    )
+  }
+}
+
+impl std::fmt::Display for Request {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    write!(
+      f,
+      "{}",
+      match &self.frame {
+        Frame::Reset => format!("RESET"),
+        Frame::Res(s) => format!("RES: {s}"),
+        Frame::Error(s) => format!("Error: {s}"),
+      }
+    )
   }
 }
