@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Entity X</title>
+
+	<style>
+		* {
+			margin: 0;
+			padding: 0;
+			box-sizing: border-box;
+			font-family: "Courier New", monospace;
+		}
+
+		html {
+			scroll-behavior: smooth;
+			scroll-snap-type: y mandatory;
+		}
+
+		body {
+			background: #fff;
+			color: #111;
+			overflow-x: hidden;
+		}
+
+		section {
+			height: 100vh;
+			scroll-snap-align: start;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			padding: 80px;
+		}
+
+		.img-wrap {
+			position: relative;
+			width: 40%;
+		}
+
+		.rounded_img {
+			border-radius: 2%;
+		}
+
+		.img-wrap::after {
+			content: "";
+			position: absolute;
+			left: 10%;
+			bottom: -40px;
+			width: 80%;
+			height: 80px;
+			filter: blur(40px);
+			opacity: .6;
+			z-index: -1;
+		}
+
+		/* gradients */
+		.logistics .img-wrap::after {
+			background: linear-gradient(90deg, #6ee7ff, #a78bfa);
+		}
+
+		.military .img-wrap::after {
+			background: linear-gradient(90deg, #ff6b6b, #f97316);
+		}
+
+		.compact .img-wrap::after {
+			background: linear-gradient(90deg, #22c55e, #06b6d4);
+		}
+
+		.personal .img-wrap::after {
+			background: linear-gradient(90deg, #ec4899, #8b5cf6);
+		}
+
+		.bsw .img-wrap::after {
+			background: linear-gradient(90deg, #111, #7c3aed);
+		}
+
+		img {
+			width: 100%;
+			display: block;
+		}
+
+		.content {
+			max-width: 600px;
+		}
+
+		h1 {
+			font-size: 4rem;
+		}
+
+		h2 {
+			font-size: 2.5rem;
+		}
+
+		p {
+			line-height: 1.6;
+			margin-top: 10px;
+		}
+
+		.title span {
+			display;
+			white-space;
+			/* keeps spacing exact (for spaces only) */
+			margin: 0;
+			padding: 0;
+			line-height: 1;
+		}
+
+		section:nth-child(even) {
+			flex-direction: row-reverse;
+		}
+
+		footer {
+			height: 50vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			flex-direction: column;
+			border-top: 1px solid #ddd;
+		}
+	</style>
+
+</head>
+
+<body>
+
+	<!-- HERO -->
+
+	<section>
+		<div class="content">
+			<h1 class="title" data-text="ENTITY X"></h1>
+			<p class="desc"
+				data-text="Entity X engineers autonomous robotic intelligence systems designed for controlled independence, adaptive decision-making, and operational dominance across logistics, combat, and human-integrated environments.">
+			</p>
+		</div>
+		<div class="img-wrap"><img src="hero.png"></div>
+	</section>
+
+	<!-- LOGISTICS -->
+
+	<section class="logistics">
+		<div class="img-wrap"><img src="logistics.png" class="rounded_img" ></div>
+		<div class="content">
+			<h2 class="title" data-text="Anix K500 / K130"></h2>
+			<p class="desc"
+				data-text="The Anix K-series logistics platforms are calibrated by weight-class intelligence cores, enabling adaptive transport across extreme terrain. They autonomously optimize load distribution, route prediction, and energy efficiency while maintaining uninterrupted supply chain execution under volatile conditions.">
+			</p>
+		</div>
+	</section>
+
+	<!-- MILITARY -->
+
+	<section class="military">
+		<div class="img-wrap"><img src="m-type.png" class="rounded_img" ></div>
+		<div class="content">
+			<h2 class="title" data-text="Ray1 / Aura-M Type"></h2>
+			<p class="desc"
+				data-text="Ray1 and Aura-M units are engineered for high-level combat autonomy, integrating predictive threat analysis and real-time tactical evolution. These systems operate independently or within synchronized networks, enabling adaptive battlefield strategies with controlled override capability.">
+			</p>
+		</div>
+	</section>
+
+	<!-- COMPACT -->
+
+	<section class="compact">
+		<div class="img-wrap"><img src="spidertron.png" class="rounded_img" ></div>
+		<div class="content">
+			<h2 class="title" data-text="Spidertron Compact"></h2>
+			<p class="desc"
+				data-text="Spidertron compact systems deliver high-density intelligence within a reduced physical architecture. Designed for infiltration and confined operations, they maintain stealth mobility and precision task execution without sacrificing computational awareness or responsiveness.">
+			</p>
+		</div>
+	</section>
+
+	<!-- PERSONAL -->
+
+	<section class="personal">
+		<div class="img-wrap"><img src="aura_3s.png" class="rounded_img" ></div>
+		<div class="content">
+			<h2 class="title" data-text="Aura 3S"></h2>
+			<p class="desc"
+				data-text="Aura 3S represents adaptive personal robotics, capable of learning behavioral patterns and evolving responses. It operates within controlled autonomy, offering assistance, environmental awareness, and intuitive human interaction through continuous cognitive refinement.">
+			</p>
+		</div>
+	</section>
+
+	<!-- BSW -->
+
+	<section class="bsw">
+		<div class="img-wrap"><img src="bio.jpeg" class="rounded_img" ></div>
+		<div class="content">
+			<h2 class="title" data-text="Virex-Ω"></h2>
+			<p class="desc"
+				data-text="Virex-Ω bio-syntactic systems merge programmable biological structures with synthetic intelligence cores. Designed for advanced warfare environments, they adapt, evolve, and restructure in response to threats, redefining the limits of controllable living weapon systems.">
+			</p>
+		</div>
+	</section>
+
+	<footer>
+		<p>© Entity X — Autonomous Systems Division</p>
+		<p>All systems monitored // Neural grid active</p>
+	</footer>
+
+	<!-- ONLY JS PART UPDATED -->
+
+	<script>
+		const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
+
+		/* =========================
+			 BUILD TITLE (LETTER SPANS)
+		========================= */
+		document.querySelectorAll(".title").forEach(el => {
+			let text = el.dataset.text;
+			el.innerHTML = text.split("").map(c => `<span>${c}</span>`).join("");
+		});
+
+		/* STORE ORIGINAL LETTERS */
+		document.querySelectorAll(".title span").forEach(span => {
+			span.dataset.char = span.innerText;
+		});
+
+		/* LETTER SCRAMBLE */
+		function scrambleLetter(span) {
+			let original = span.dataset.char;
+			let count = 0;
+
+			let interval = setInterval(() => {
+				span.innerText = letters[Math.floor(Math.random() * letters.length)];
+				count++;
+
+				if (count > 5) {
+					span.innerText = original;
+					clearInterval(interval);
+				}
+			}, 15);
+		}
+
+		/* TITLE HOVER (PRECISE WIDTH FIXED) */
+		document.querySelectorAll(".title").forEach(el => {
+			el.addEventListener("mousemove", (e) => {
+				let spans = el.querySelectorAll("span");
+
+				let first = spans[0].getBoundingClientRect();
+				let last = spans[spans.length - 1].getBoundingClientRect();
+
+				let left = first.left;
+				let width = last.right - left;
+
+				let ratio = (e.clientX - left) / width;
+
+				spans.forEach((span, i) => {
+					let pos = i / spans.length;
+
+					if (Math.abs(pos - ratio) < 0.2 && Math.random() < 0.35) {
+						scrambleLetter(span);
+					}
+				});
+			});
+		});
+
+		/* =========================
+			 BUILD PARAGRAPH (WORD SPANS)
+		========================= */
+		document.querySelectorAll(".desc").forEach(el => {
+			let text = el.dataset.text;
+
+			el.innerHTML = text.split(" ").map((word, i) => {
+				return `<span class="word" data-word="${word}">${word}</span>${i < text.split(" ").length - 1 ? " " : ""}`;
+			}).join("");
+		});
+
+		/* WORD SCRAMBLE */
+		/* CLEAN WORD SCRAMBLE (STABLE) */
+		function scrambleWord(span) {
+			let final = span.dataset.word;
+			let iteration = 0;
+
+			let interval = setInterval(() => {
+				let output = "";
+
+				for (let i = 0; i < final.length; i++) {
+					if (i < iteration) {
+						output += final[i];
+					} else {
+						output += letters[Math.floor(Math.random() * letters.length)];
+					}
+				}
+
+				span.textContent = output;
+
+				if (iteration >= final.length) {
+					span.textContent = final;
+					clearInterval(interval);
+				}
+
+				iteration += 1; /* smoother */
+			}, 15);
+		};
+
+
+		/* =========================
+			 OBSERVER (ONE ONLY)
+		========================= */
+		const observer = new IntersectionObserver(entries => {
+			entries.forEach(entry => {
+				if (entry.isIntersecting) {
+					let el = entry.target;
+
+					if (!el.dataset.done) {
+
+						/* paragraph animation */
+						if (el.classList.contains("desc")) {
+							let words = el.querySelectorAll(".word");
+
+							words.forEach((word, i) => {
+								setTimeout(() => {
+									scrambleWord(word);
+								}, i * 40);
+							});
+						}
+
+						el.dataset.done = "true";
+					}
+				}
+			});
+		}, {threshold: 0.6});
+
+		/* WORD HOVER (like title but lighter) */
+		document.querySelectorAll(".desc").forEach(el => {
+			el.addEventListener("mousemove", (e) => {
+				let words = el.querySelectorAll(".word");
+
+				```
+	let rect = el.getBoundingClientRect();
+	let ratio = (e.clientX - rect.left) / rect.width;
+
+	words.forEach((word,i)=>{
+		let pos = i / words.length;
+
+		if(Math.abs(pos - ratio) < 0.15 && Math.random() < 0.25){
+			scrambleWord(word);
+		}
+	});
+});
+```
+
+			});
+		});
+
+
+		/* APPLY OBSERVER */
+		document.querySelectorAll(".desc").forEach(el => {
+			observer.observe(el);
+		});
+
+	</script>
+
+</body>
+
+</html>
