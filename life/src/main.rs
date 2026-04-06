@@ -24,12 +24,13 @@ impl tracing_subscriber::fmt::time::FormatTime for LogTime {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+  let _path: Vec<String> = std::env::args().collect();
+  let path = std::path::PathBuf::from(_path.get(1).expect("put the unix socket path"));
+
   tracing_subscriber::fmt::fmt()
     .with_max_level(tracing::Level::TRACE)
     .with_timer(LogTime::new())
     .init();
-
-  let path = std::path::PathBuf::from("/tmp/sock.0");
 
   if path.exists() {
     std::fs::remove_file(&path).unwrap();

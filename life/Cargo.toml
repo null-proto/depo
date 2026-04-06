@@ -8,6 +8,10 @@ autobins = true
 name = "client"
 path = "src/client.rs"
 
+[[bin]]
+name = "proxy"
+path = "src/proxy/main.rs"
+
 [dependencies]
 bytes.workspace = true
 tokio.workspace = true

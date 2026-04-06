@@ -7,12 +7,13 @@ use tokio::io::AsyncWriteExt;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+  let _path: Vec<String> = std::env::args().collect();
+  let path = std::path::PathBuf::from(_path.get(1).expect("put the unix socket path"));
+
   tracing_subscriber::fmt::fmt()
     .with_max_level(tracing::Level::TRACE)
     .without_time()
     .init();
-
-  let path = std::path::PathBuf::from("/tmp/sock.0");
 
   if !path.exists() {
     panic!("unix socket not found at {}", path.display());
