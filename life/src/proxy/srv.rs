@@ -131,6 +131,7 @@ impl ProxyAgent {
 
         Err(Ok((stream, peer))) => {
           // new connection opened
+
         }
 
         Err(Err(e)) => {

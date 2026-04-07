@@ -5,8 +5,12 @@ edition = "2024"
 autobins = true
 
 [[bin]]
-name = "client"
-path = "src/client.rs"
+name = "unix_client"
+path = "src/unix_client.rs"
+
+[[bin]]
+name = "tcp_client"
+path = "src/tcp_client.rs"
 
 [[bin]]
 name = "proxy"
