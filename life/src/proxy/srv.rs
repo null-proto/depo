@@ -5,6 +5,7 @@
 // ---
 // ClientAgent (req) -> MAP -> (call FetchAgent) -> MAP_POST -> (res)
 //
+// ---
 
 use std::{
   borrow::Cow,
@@ -16,11 +17,18 @@ use std::{
 
 use futures::FutureExt;
 use life::IntoRequest;
-use tokio::{io::AsyncWriteExt, net::UnixStream};
 use std::sync::Mutex;
+use tokio::{
+  io::AsyncWriteExt,
+  net::{TcpStream, UnixStream},
+  sync::mpsc::{Receiver, Sender},
+};
+use tracing::event;
+
+use crate::Message;
 
 pub struct FetchAgent {
-  sock:  Mutex<UnixStream>,
+  sock: UnixStream,
 }
 
 pub struct Macher {
@@ -29,14 +37,22 @@ pub struct Macher {
 
 pub struct ClientAgent {
   path: PathBuf,
-  addr: SocketAddr,
+  stream: TcpStream,
   fetch: Option<FetchAgent>,
+}
+
+pub struct ProxyAgent {
+  path: PathBuf,
+  addr: SocketAddr,
+  sender: Sender<Message>,
+  receiver: Receiver<Message>,
+  matcher: Macher,
 }
 
 impl FetchAgent {
   pub async fn new(path: &Path) -> Result<Self, Box<dyn Error + Send + Sync>> {
     Ok(Self {
-      sock: Mutex::new(UnixStream::connect(path).await?),
+      sock: UnixStream::connect(path).await?,
     })
   }
 
@@ -44,15 +60,10 @@ impl FetchAgent {
     let sock = tokio::select! {
     sock = UnixStream::connect(path) => { sock },
     _ = tokio::time::sleep( std::time::Duration::from_secs(2)) => {
-      Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "Fetch timeout"))
+      Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "fetch timeout"))
     }
     }?;
-
-    self.sock.lock().and_then(move |mut i| {
-      *i = sock;
-      Ok(())
-    });
-
+    self.sock = sock;
     Ok(())
   }
 }
@@ -64,11 +75,75 @@ impl Macher {
 }
 
 impl ClientAgent {
-  pub fn new(path: PathBuf, addr: SocketAddr) -> Self {
+  pub fn new(stream: TcpStream, path: PathBuf) -> Self {
+    Self {
+      fetch: None,
+      stream,
+      path,
+    }
+  }
+}
+
+impl ProxyAgent {
+  pub fn new(
+    path: PathBuf,
+    addr: SocketAddr,
+    sender: Sender<Message>,
+    receiver: Receiver<Message>,
+  ) -> Self {
     Self {
       path,
       addr,
-      fetch: None,
+      sender,
+      receiver,
+      matcher: Macher::new(""),
+    }
+  }
+
+  pub async fn runner(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let listener = tokio::net::TcpListener::bind(&self.addr).await?;
+    loop {
+      let event = tokio::select! {
+        i = self.receiver.recv() => { Ok(i) }
+        conn = listener.accept() => { Err(conn) }
+      };
+
+      match event {
+        Ok(Some(e)) => match e {
+          Message::Ok => {
+            self.sender.send(Message::Ok).await?;
+          }
+
+          Message::Add(s) => {
+            self.matcher = Macher::new(s);
+            self.sender.send(Message::Ok).await?;
+          }
+
+          Message::Del(d) => {
+            self.matcher = Macher::new("");
+            self.sender.send(Message::Ok).await?;
+          }
+
+          _ => {
+            self.sender.send(Message::None).await?;
+          }
+        },
+
+        Err(Ok((stream, peer))) => {
+          // new connection opened
+        }
+
+        Err(Err(e)) => {
+          if let Ok(e) = e.downcast::<std::io::Error>() {
+            self
+              .sender
+              .send(Message::Log(format!("error, {}", e.to_string())))
+              .await?;
+          }
+        }
+
+        Ok(None) => {}
+      }
     }
   }
 }
@@ -89,15 +164,6 @@ where
   }
 
   fn call(&mut self, req: R) -> Self::Future {
-    let req = req.into_req();
-    let mut sock = self.sock.lock().unwrap();
-
-    Box::pin(async move {
-      sock.write(&req.into_vec_u8()).await?;
-      // sock.flush().await?;
-    //   let res = life::Response::read_from(*sock).await?;
-    //   Ok(res)
-      todo!()
-    })
+    todo!()
   }
 }

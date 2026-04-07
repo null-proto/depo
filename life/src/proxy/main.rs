@@ -1,6 +1,11 @@
-use std::{fmt::{Display, write}, net::{Ipv4Addr, SocketAddr}};
+use std::{
+  fmt::{Display, write},
+  net::{Ipv4Addr, SocketAddr},
+};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+use crate::srv::ProxyAgent;
 
 pub mod srv;
 
@@ -27,11 +32,11 @@ async fn main() {
     loop {
       let m = tokio::select! {
         s = receiver.recv() => { Event::Msg(s) }
-        i = async {
-          stdout.write_all(b" -> {buf}").await;
-          stdout.flush().await;
-          stdin.read_line(&mut buf).await;
-        } => { Event::Io(i) }
+        _ = async {
+          _ = stdout.write_all(b" -> {buf}").await;
+          _ = stdout.flush().await;
+          _ = stdin.read_line(&mut buf).await;
+        } => { Event::Io(()) }
       };
 
       match m {
@@ -45,12 +50,12 @@ async fn main() {
 
           if !buf_s.is_empty() {
             let msg = match buf_s.chars().nth(0) {
-              Some('x') => Message::Del(buf_s[1..].to_string()),
-              Some('a') => Message::Add(buf_s[1..].to_string()),
-              Some(_) => Message::Add(buf_s[1..].to_string()),
+              Some('x') => Message::Del(buf_s[2..].to_string()),
+              Some('a') => Message::Add(buf_s[2..].to_string()),
+              Some(_) => Message::Add(buf_s[2..].to_string()),
               None => Message::None,
             };
-            sender.send(msg).await;
+            sender.send(msg).await.expect("cannot send anything to Proxy");
           };
 
           buf.clear();
@@ -65,31 +70,33 @@ async fn main() {
   });
 
   let server = tokio::spawn(async move {
-    let _path = server_path;
-    let _addr = SocketAddr::new(std::net::IpAddr::V4( Ipv4Addr::new(127, 0,0,1)), 8080);
-    let _sender = txr;
-    let _receiver = rx;
+    let path = server_path;
+    let addr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+    let sender = txr;
+    let receiver = rx;
+
+    let ca = ProxyAgent::new(path, addr , sender, receiver);
   });
 
-  tokio::join!(reader, server);
+  _ = tokio::join!(reader, server);
 }
 
-enum Event<'a> {
+enum Event {
   Io(()),
-  Msg(Option<Message<'a>>),
+  Msg(Option<Message>),
 }
 
 #[derive(Debug)]
-enum Message<'a> {
+#[allow(unused)]
+pub enum Message {
   None,
   Ok,
-  Logs(&'a str),
   Log(String),
   Add(String),
   Del(String),
 }
 
-impl Display for Message<'_> {
+impl Display for Message {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     use Message::*;
 
@@ -100,21 +107,17 @@ impl Display for Message<'_> {
         None => format!("na."),
         Ok => format!("ok"),
         Log(s) => {
-          format!("log {}", s)
+          format!("log \x1b[39m{}\x1b[0m", s)
         }
-        Logs(s) => {
-          format!("log {}", s)
-        }
-
         Add(s) => {
-          format!("add {}", s)
+          format!("add \x1b[33m{}\x1b[0m", s)
         }
         Del(s) => {
-          format!("delete {}", s)
+          format!("delete \x1b[31m{}\x1b[0m", s)
         }
       }
     )
   }
 }
 
-unsafe impl Send for Message<'_> {}
+unsafe impl Send for Message {}
