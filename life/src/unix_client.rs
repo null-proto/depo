@@ -12,6 +12,8 @@ async fn main() {
 
   if !path.exists() {
     panic!("unix socket not found at {}", path.display());
+  } else {
+    tracing::info!("Unix Client configured : {}", path.display());
   }
 
   let mut reconnect = false;
