@@ -141,7 +141,7 @@
 	<!-- LOGISTICS -->
 
 	<section class="logistics">
-		<div class="img-wrap"><img src="logistics.png" class="rounded_img" ></div>
+		<div class="img-wrap"><img src="logistics.png" class="rounded_img"></div>
 		<div class="content">
 			<h2 class="title" data-text="Anix K500 / K130"></h2>
 			<p class="desc"
@@ -153,7 +153,7 @@
 	<!-- MILITARY -->
 
 	<section class="military">
-		<div class="img-wrap"><img src="m-type.png" class="rounded_img" ></div>
+		<div class="img-wrap"><img src="m-type.png" class="rounded_img"></div>
 		<div class="content">
 			<h2 class="title" data-text="Ray1 / Aura-M Type"></h2>
 			<p class="desc"
@@ -165,7 +165,7 @@
 	<!-- COMPACT -->
 
 	<section class="compact">
-		<div class="img-wrap"><img src="spidertron.png" class="rounded_img" ></div>
+		<div class="img-wrap"><img src="spidertron.png" class="rounded_img"></div>
 		<div class="content">
 			<h2 class="title" data-text="Spidertron Compact"></h2>
 			<p class="desc"
@@ -177,7 +177,7 @@
 	<!-- PERSONAL -->
 
 	<section class="personal">
-		<div class="img-wrap"><img src="aura_3s.png" class="rounded_img" ></div>
+		<div class="img-wrap"><img src="aura_3s.png" class="rounded_img"></div>
 		<div class="content">
 			<h2 class="title" data-text="Aura 3S"></h2>
 			<p class="desc"
@@ -189,18 +189,18 @@
 	<!-- BSW -->
 
 	<section class="bsw">
-		<div class="img-wrap"><img src="bio.jpeg" class="rounded_img" ></div>
+		<div class="img-wrap"><img src="bio.jpeg" class="rounded_img"></div>
 		<div class="content">
 			<h2 class="title" data-text="Virex-Ω"></h2>
 			<p class="desc"
-				data-text="Virex-Ω bio-syntactic systems merge programmable biological structures with synthetic intelligence cores. Designed for advanced warfare environments, they adapt, evolve, and restructure in response to threats, redefining the limits of controllable living weapon systems.">
+				data-text="Virex-Ω bio-syntactic systems merge programmable biological structures with synthetic intelligence cores. Designed for all bio environments, they adapt, evolve, and restructure in response to threats, redefining the limits of controllable living weapon systems.">
 			</p>
 		</div>
 	</section>
 
 	<footer>
 		<p>© Entity X — Autonomous Systems Division</p>
-		<p>All systems monitored // Neural grid active</p>
+		<p>All systems monitored</p>
 	</footer>
 
 	<!-- ONLY JS PART UPDATED -->
@@ -328,27 +328,21 @@
 		}, {threshold: 0.6});
 
 		/* WORD HOVER (like title but lighter) */
-		document.querySelectorAll(".desc").forEach(el => {
+		document.querySelectorAll(".title").forEach(el => {
 			el.addEventListener("mousemove", (e) => {
-				let words = el.querySelectorAll(".word");
+				let spans = el.querySelectorAll("span");
+				let rect = el.getBoundingClientRect();
+				let ratio = (e.clientX - rect.left) / rect.width;
 
-				```
-	let rect = el.getBoundingClientRect();
-	let ratio = (e.clientX - rect.left) / rect.width;
+				words.forEach((word, i) => {
+					let pos = i / words.length;
 
-	words.forEach((word,i)=>{
-		let pos = i / words.length;
-
-		if(Math.abs(pos - ratio) < 0.15 && Math.random() < 0.25){
-			scrambleWord(word);
-		}
-	});
-});
-```
-
+					if (Math.abs(pos - ratio) < 0.15 && Math.random() < 0.25) {
+						scrambleWord(word);
+					}
+				});
 			});
 		});
-
 
 		/* APPLY OBSERVER */
 		document.querySelectorAll(".desc").forEach(el => {
