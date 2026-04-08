@@ -8,36 +8,38 @@
 // ---
 
 use std::{
-  borrow::Cow,
-  error::Error,
-  net::SocketAddr,
-  path::{Path, PathBuf},
-  pin::Pin,
+  borrow::Cow, error::Error, fmt::Pointer, net::SocketAddr, ops::Deref, path::{Path, PathBuf}, pin::Pin
 };
 
 use futures::FutureExt;
-use life::IntoRequest;
+use life::{IntoRequest, Request, Response};
 use std::sync::Mutex;
 use tokio::{
   io::AsyncWriteExt,
   net::{TcpStream, UnixStream},
-  sync::mpsc::{Receiver, Sender},
+  sync::{
+    mpsc::{Receiver, Sender},
+    watch::Receiver as Watcher,
+  },
 };
 use tracing::event;
 
 use crate::Message;
 
 pub struct FetchAgent {
-  sock: UnixStream,
+  path: PathBuf,
+  sock: Option<UnixStream>,
 }
 
 pub struct Macher {
   inner: String,
 }
 
-pub struct ClientAgent {
-  path: PathBuf,
+pub struct ClientAgent<'a> {
   stream: TcpStream,
+  sender: Sender<Message>,
+  watcher: Watcher<Macher>,
+  poissoned: &'a bool,
   fetch: Option<FetchAgent>,
 }
 
@@ -46,24 +48,24 @@ pub struct ProxyAgent {
   addr: SocketAddr,
   sender: Sender<Message>,
   receiver: Receiver<Message>,
+  watcher: Watcher<Macher>,
   matcher: Macher,
 }
 
 impl FetchAgent {
-  pub async fn new(path: &Path) -> Result<Self, Box<dyn Error + Send + Sync>> {
-    Ok(Self {
-      sock: UnixStream::connect(path).await?,
-    })
+  pub fn new(path: PathBuf) -> Self {
+    Self { sock: None, path }
   }
 
-  pub async fn reconnect(&mut self, path: &Path) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let sock = tokio::select! {
-    sock = UnixStream::connect(path) => { sock },
+  pub async fn reconnect(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut sock = tokio::select! {
+    sock = UnixStream::connect(&self.path) => { sock },
     _ = tokio::time::sleep( std::time::Duration::from_secs(2)) => {
       Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "fetch timeout"))
     }
     }?;
-    self.sock = sock;
+    life::client::handshake(&mut sock).await?;
+    self.sock.as_mut().map(move |_| sock);
     Ok(())
   }
 }
@@ -74,12 +76,20 @@ impl Macher {
   }
 }
 
-impl ClientAgent {
-  pub fn new(stream: TcpStream, path: PathBuf) -> Self {
+impl<'a> ClientAgent<'a> {
+  pub fn new(
+    stream: TcpStream,
+    path: PathBuf,
+    sender: Sender<Message>,
+    watcher: Watcher<Macher>,
+    poissoned: &'a bool,
+  ) -> Self {
     Self {
-      fetch: None,
+      fetch: Some(FetchAgent::new(path)),
       stream,
-      path,
+      sender,
+      watcher,
+      poissoned,
     }
   }
 }
@@ -90,12 +100,14 @@ impl ProxyAgent {
     addr: SocketAddr,
     sender: Sender<Message>,
     receiver: Receiver<Message>,
+    watcher: Watcher<Macher>,
   ) -> Self {
     Self {
       path,
       addr,
       sender,
       receiver,
+      watcher,
       matcher: Macher::new(""),
     }
   }
@@ -131,7 +143,6 @@ impl ProxyAgent {
 
         Err(Ok((stream, peer))) => {
           // new connection opened
-
         }
 
         Err(Err(e)) => {
@@ -149,22 +160,56 @@ impl ProxyAgent {
   }
 }
 
-impl<R> tower::Service<R> for FetchAgent
-where
-  R: IntoRequest + 'static,
-{
-  type Error = Box<dyn Error + Send + Sync>;
-  type Response = life::Response;
-  type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
-
-  fn poll_ready(
+impl FetchAgent {
+  async fn call<R: IntoRequest + 'static>(
     &mut self,
-    cx: &mut std::task::Context<'_>,
-  ) -> std::task::Poll<Result<(), Self::Error>> {
-    std::task::Poll::Pending
-  }
+    req: R,
+  ) -> Result<Response, Box<dyn Error + Send + Sync>> {
+    let req = req.into_req();
+    let mut retry = 0u8;
 
-  fn call(&mut self, req: R) -> Self::Future {
-    todo!()
+    loop {
+      if let Some(sock) = &mut self.sock {
+        if sock.write(&req.into_vec_u8()).await.is_ok() {
+          break Response::read_from(sock).await;
+        };
+      }
+      self.reconnect().await?;
+
+      if retry > 3u8 {
+        break Err(
+          Box::new(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "retry exceeded",
+          ))
+          .into(),
+        );
+      } else {
+        retry += 1;
+      }
+    }
+  }
+}
+
+impl ClientAgent<'_> {
+  async fn call(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let mut matcher : Option<&Macher> = None;
+    let mut watcher = self.watcher.clone();
+
+    loop {
+      let creq = Request::read_from(&mut self.stream).await?;
+
+      if matcher.is_none() || watcher.has_changed()? {
+
+        matcher = Some(
+          watcher.borrow_and_update().deref()
+        )
+      }
+
+      if let life::Frame::Res(s) = &creq.frame {
+      }
+      let sres = self.fetch.as_mut().unwrap().call(creq).await?;
+      self.stream.write(sres.into_vec_u8().as_slice()).await?;
+    }
   }
 }

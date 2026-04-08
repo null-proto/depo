@@ -5,7 +5,7 @@ use std::{
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
-use crate::srv::ProxyAgent;
+use crate::srv::{Macher, ProxyAgent};
 
 pub mod srv;
 
@@ -21,9 +21,11 @@ async fn main() {
 
   let (tx, rx) = tokio::sync::mpsc::channel::<Message>(1);
   let (txr, rxr) = tokio::sync::mpsc::channel::<Message>(1);
+  let (wtx , wrx) = tokio::sync::watch::channel::<srv::Macher>( Macher::new(""));
 
   let reader = tokio::spawn(async move {
     let sender = tx;
+    let watcher = wtx;
     let mut receiver = rxr;
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
     let mut stdout = tokio::io::stdout();
@@ -41,7 +43,7 @@ async fn main() {
 
       match m {
         Event::Io(_) => {
-          let buf_s = buf.trim_end();
+          let buf_s = buf.trim();
 
           if buf_s.chars().last().map(|i| i == '-').unwrap_or(false) {
             buf.clear();
@@ -49,15 +51,20 @@ async fn main() {
           }
 
           if !buf_s.is_empty() {
-            let msg = match buf_s.chars().nth(0) {
-              Some('x') => Message::Del(buf_s[2..].to_string()),
-              Some('a') => Message::Add(buf_s[2..].to_string()),
-              Some(_) => Message::Add(buf_s[2..].to_string()),
-              None => Message::None,
-            };
-            sender.send(msg).await.expect("cannot send anything to Proxy");
-          };
+            if let Some(mark) = buf_s.chars().nth(0) {
+              match mark {
+                'x' => {
+                  watcher.send(Macher::new(""))
+                }
 
+                any => {
+                  watcher.send(Macher::new(any))
+                }
+              }.unwrap();
+
+              sender.send(Message::ReloadWatcher).await.expect("cannot send anything to Proxy");
+            };
+          };
           buf.clear();
         }
 
@@ -92,6 +99,7 @@ pub enum Message {
   None,
   Ok,
   Log(String),
+  ReloadWatcher,
   Add(String),
   Del(String),
 }
@@ -106,6 +114,7 @@ impl Display for Message {
       match self {
         None => format!("na."),
         Ok => format!("ok"),
+        ReloadWatcher => format!("reload-watcher"),
         Log(s) => {
           format!("log \x1b[39m{}\x1b[0m", s)
         }

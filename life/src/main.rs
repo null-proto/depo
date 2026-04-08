@@ -21,7 +21,6 @@ impl tracing_subscriber::fmt::time::FormatTime for LogTime {
   }
 }
 
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
   let _path: Vec<String> = std::env::args().collect();
