@@ -41,7 +41,7 @@ async fn main() {
 
     sender.send(Message::Ok).await.unwrap();
     match receiver.recv().await.unwrap() {
-      a => stdout.write_all(format!("server connection: \x1b[32m{a}\x1b[0m\n").as_bytes()).await.unwrap(),
+      state => stdout.write_all(format!("\rserver connection: {state}\n").as_bytes()).await.unwrap(),
     };
 
     loop {
@@ -49,14 +49,14 @@ async fn main() {
         s = receiver.recv() => { Event::Msg(s) }
         _ = async {
           if blocked.is_empty() {
-            _ = stdout.write_all(format!(" -> {buf}").as_bytes()).await;
+            _ = stdout.write_all(format!("\r ~# {buf}").as_bytes()).await;
             _ = stdout.flush().await;
             _ = stdin.read_line(&mut buf).await;
           } else {
             for (i, b) in blocked.iter().enumerate() {
               _ = stdout.write_all( format!("{}: {}\n" , i , b).as_bytes() );
             }
-            _ = stdout.write_all(format!(" -> {buf}").as_bytes()).await;
+            _ = stdout.write_all(format!("\r [{}]$ {buf}", blocked.len()).as_bytes()).await;
             _ = stdout.flush().await;
             _ = stdin.read_line(&mut buf2).await;
 
@@ -114,7 +114,7 @@ async fn main() {
           }
 
           Event::Msg(Some(m)) => {
-            println!("server says: \x1b[90m{m}\x1b[0m");
+            println!("\r\x1b[90mserver says:\x1b[0m {m}");
           }
           _ => {}
         };
@@ -143,6 +143,7 @@ enum Event {
 pub enum Message {
   None,
   Ok,
+  Err,
 
   Release,
   Kill,
@@ -151,8 +152,6 @@ pub enum Message {
 
   Log(String),
   ReloadWatcher,
-  Add(String),
-  Del(String),
 }
 
 pub struct Block {
@@ -174,25 +173,20 @@ impl Display for Message {
       f,
       "{}",
       match self {
-        None => format!("na."),
-        Ok => format!("ok"),
+        None => format!("\x1b[33mna.\x1b[0m"),
+        Ok => format!("\x1b[32mok\x1b[0m"),
+        Err => format!("\x1b[31mer.\x1b[0m"),
         ReloadWatcher => format!("reload-watcher"),
         Release => format!("release"),
-        Kill => format!("kill"),
+        Kill => format!("\x1b[31mkill\x1b[0m"),
         Log(s) => {
-          format!("log \x1b[39m{}\x1b[0m", s)
-        }
-        Add(s) => {
-          format!("add \x1b[33m{}\x1b[0m", s)
-        }
-        Del(s) => {
-          format!("delete \x1b[31m{}\x1b[0m", s)
+          format!("\x1b[30mlog, {}\x1b[0m", s)
         }
         Blocked(Block {
           matcher: Macher { inner },
           ..
         }) => {
-          format!("block \x1b[31m{}\x1b[0m", inner)
+          format!("block on, \x1b[31m{}\x1b[0m", inner)
         }
       }
     )

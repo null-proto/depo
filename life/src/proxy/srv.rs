@@ -55,7 +55,6 @@ pub struct ProxyAgent {
   sender: Sender<Message>,
   receiver: Receiver<Message>,
   watcher: Watcher<Macher>,
-  matcher: Macher,
 }
 
 impl FetchAgent {
@@ -111,7 +110,6 @@ impl ProxyAgent {
       sender,
       receiver,
       watcher,
-      matcher: Macher::new(""),
     }
   }
 
@@ -129,16 +127,6 @@ impl ProxyAgent {
             self.sender.send(Message::Ok).await?;
           }
 
-          Message::Add(s) => {
-            self.matcher = Macher::new(s);
-            self.sender.send(Message::Ok).await?;
-          }
-
-          Message::Del(d) => {
-            self.matcher = Macher::new("");
-            self.sender.send(Message::Ok).await?;
-          }
-
           _ => {
             self.sender.send(Message::None).await?;
           }
@@ -146,6 +134,8 @@ impl ProxyAgent {
 
         Err(Ok((stream, peer))) => {
           // new connection opened
+          self.sender.send(Message::Log("new tcp connection".to_owned())).await?;
+
           let mut client = ClientAgent::new(
             stream,
             self.path.clone(),
@@ -212,6 +202,7 @@ impl ClientAgent {
       let creq = Request::read_from(&mut self.stream).await?;
 
       if self.watcher.has_changed()? {
+        self.sender.send(Message::Ok).await?;
         m = self.watcher.borrow_and_update().deref().clone();
       }
 

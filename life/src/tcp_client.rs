@@ -14,7 +14,7 @@ async fn main() {
 
   let mut reconnect = false;
 
-  tracing::info!("Tcp Client configured : {}", addr);
+  tracing::info!(target: "client" ,"Tcp Client configured : {}", addr);
   loop {
     if reconnect {
       tracing::info!("Retrying in 2s");
@@ -23,14 +23,14 @@ async fn main() {
 
     reconnect = if let Ok(conn) = tokio::net::TcpStream::connect(&addr).await {
       if let Err(e) = client_handler(conn).await {
-        tracing::error!("*** connection exit, {}", e.to_string());
+        tracing::error!(target: "client","*** connection exit, {}", e.to_string());
         true
       } else {
-        tracing::warn!("*** connection exit");
+        tracing::warn!(target: "client","*** connection exit");
         break;
       }
     } else {
-      tracing::error!("??? cannot connect");
+      tracing::error!(target: "client","??? cannot connect");
       true
     }
   }
