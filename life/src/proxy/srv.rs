@@ -31,15 +31,15 @@ pub struct FetchAgent {
   sock: Option<UnixStream>,
 }
 
+#[derive(Clone)]
 pub struct Macher {
-  inner: String,
+  pub inner: String,
 }
 
-pub struct ClientAgent<'a> {
+pub struct ClientAgent {
   stream: TcpStream,
   sender: Sender<Message>,
   watcher: Watcher<Macher>,
-  poissoned: &'a bool,
   fetch: Option<FetchAgent>,
 }
 
@@ -64,7 +64,6 @@ impl FetchAgent {
       Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "fetch timeout"))
     }
     }?;
-    life::client::handshake(&mut sock).await?;
     self.sock.as_mut().map(move |_| sock);
     Ok(())
   }
@@ -76,20 +75,18 @@ impl Macher {
   }
 }
 
-impl<'a> ClientAgent<'a> {
+impl ClientAgent {
   pub fn new(
     stream: TcpStream,
     path: PathBuf,
     sender: Sender<Message>,
     watcher: Watcher<Macher>,
-    poissoned: &'a bool,
   ) -> Self {
     Self {
       fetch: Some(FetchAgent::new(path)),
       stream,
       sender,
       watcher,
-      poissoned,
     }
   }
 }
@@ -191,22 +188,26 @@ impl FetchAgent {
   }
 }
 
-impl ClientAgent<'_> {
+impl ClientAgent {
   async fn call(&mut self) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut matcher : Option<&Macher> = None;
-    let mut watcher = self.watcher.clone();
+    let mut m = self.watcher.borrow_and_update().deref().clone();
 
     loop {
       let creq = Request::read_from(&mut self.stream).await?;
 
-      if matcher.is_none() || watcher.has_changed()? {
-
-        matcher = Some(
-          watcher.borrow_and_update().deref()
-        )
+      if self.watcher.has_changed()? {
+        m = self.watcher.borrow_and_update().deref().clone();
       }
 
       if let life::Frame::Res(s) = &creq.frame {
+        if s.starts_with( &m.inner ) {
+          let (tx, rx) = tokio::sync::oneshot::channel::<Message>();
+          self.sender.send(Message::Ok).await?;
+          match rx.blocking_recv()? {
+            Message::Kill => continue,
+            _ => {}
+          }
+        }
       }
       let sres = self.fetch.as_mut().unwrap().call(creq).await?;
       self.stream.write(sres.into_vec_u8().as_slice()).await?;
