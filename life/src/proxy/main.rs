@@ -19,12 +19,17 @@ async fn main() {
 
   let _path: Vec<String> = std::env::args().collect();
   let server_path = std::path::PathBuf::from(_path.get(1).expect("put the unix socket path"));
+  let addr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
 
-  let (tx, rx) = tokio::sync::mpsc::channel::<Message>(1);
-  let (txr, rxr) = tokio::sync::mpsc::channel::<Message>(1);
+  println!("\x1b[90mproxy configured\x1b[0m");
+  println!("\x1b[32mtcp\x1b[0m   <<<  \x1b[90m{}\x1b[0m", addr);
+  println!("\x1b[34munix\x1b[0m  >>>  \x1b[90m{}\x1b[0m", server_path.display());
+
+  let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
+  let (txr, rxr) = tokio::sync::mpsc::channel::<Message>(100);
   let (wtx, wrx) = tokio::sync::watch::channel::<srv::Macher>(Macher::new(""));
 
-  let reader = tokio::spawn(async move {
+  let stdio = tokio::spawn(async move {
     let sender = tx;
     let watcher = wtx;
     let mut receiver = rxr;
@@ -34,19 +39,24 @@ async fn main() {
     let mut buf2 = String::new();
     let mut blocked: Vec<Block> = vec![];
 
+    sender.send(Message::Ok).await.unwrap();
+    match receiver.recv().await.unwrap() {
+      a => stdout.write_all(format!("server connection: \x1b[32m{a}\x1b[0m\n").as_bytes()).await.unwrap(),
+    };
+
     loop {
       let m = tokio::select! {
         s = receiver.recv() => { Event::Msg(s) }
         _ = async {
           if blocked.is_empty() {
-            _ = stdout.write_all(b" -> {buf}").await;
+            _ = stdout.write_all(format!(" -> {buf}").as_bytes()).await;
             _ = stdout.flush().await;
             _ = stdin.read_line(&mut buf).await;
           } else {
             for (i, b) in blocked.iter().enumerate() {
               _ = stdout.write_all( format!("{}: {}\n" , i , b).as_bytes() );
             }
-            _ = stdout.write_all(b" -> ").await;
+            _ = stdout.write_all(format!(" -> {buf}").as_bytes()).await;
             _ = stdout.flush().await;
             _ = stdin.read_line(&mut buf2).await;
 
@@ -71,6 +81,8 @@ async fn main() {
                 }
               }
             }
+
+            buf2.clear();
           }
         } => { Event::Io(()) }
       };
@@ -102,7 +114,7 @@ async fn main() {
           }
 
           Event::Msg(Some(m)) => {
-            println!("server says: {m}")
+            println!("server says: \x1b[90m{m}\x1b[0m");
           }
           _ => {}
         };
@@ -112,7 +124,6 @@ async fn main() {
 
   let server = tokio::spawn(async move {
     let path = server_path;
-    let addr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
     let sender = txr;
     let receiver = rx;
 
@@ -120,7 +131,7 @@ async fn main() {
     ca.runner().await.unwrap();
   });
 
-  _ = tokio::join!(reader, server);
+  _ = tokio::join!(stdio, server);
 }
 
 enum Event {

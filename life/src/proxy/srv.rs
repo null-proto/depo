@@ -8,7 +8,13 @@
 // ---
 
 use std::{
-  borrow::Cow, error::Error, fmt::Pointer, net::SocketAddr, ops::Deref, path::{Path, PathBuf}, pin::Pin
+  borrow::Cow,
+  error::Error,
+  fmt::Pointer,
+  net::SocketAddr,
+  ops::Deref,
+  path::{Path, PathBuf},
+  pin::Pin,
 };
 
 use futures::FutureExt;
@@ -140,6 +146,16 @@ impl ProxyAgent {
 
         Err(Ok((stream, peer))) => {
           // new connection opened
+          let mut client = ClientAgent::new(
+            stream,
+            self.path.clone(),
+            self.sender.clone(),
+            self.watcher.clone(),
+          );
+
+          tokio::spawn(async move {
+            client.call().await;
+          });
         }
 
         Err(Err(e)) => {
@@ -199,16 +215,19 @@ impl ClientAgent {
         m = self.watcher.borrow_and_update().deref().clone();
       }
 
-      if let life::Frame::Res(s) = &creq.frame {
-        if s.starts_with( &m.inner ) {
-          let (tx, rx) = tokio::sync::oneshot::channel::<Message>();
-          self.sender.send(Message::Ok).await?;
-          match rx.blocking_recv()? {
-            Message::Kill => continue,
-            _ => {}
+      if !m.inner.is_empty() {
+        if let life::Frame::Res(s) = &creq.frame {
+          if s.starts_with(&m.inner) {
+            let (tx, rx) = tokio::sync::oneshot::channel::<Message>();
+            self.sender.send(Message::Ok).await?;
+            match rx.blocking_recv()? {
+              Message::Kill => continue,
+              _ => {}
+            }
           }
         }
       }
+
       let sres = self.fetch.as_mut().unwrap().call(creq).await?;
       self.stream.write(sres.into_vec_u8().as_slice()).await?;
     }

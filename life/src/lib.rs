@@ -153,19 +153,24 @@ pub mod client {
 }
 pub mod server {
   /// basic server
-  pub struct Server {
-    stream: tokio::net::UnixStream,
+  pub struct Server<T> {
+    stream: T,
   }
 
   use crate::Frame;
   use crate::Request;
   use std::fmt::Display;
   use std::pin::Pin;
+  use tokio::io::AsyncRead;
+  use tokio::io::AsyncWrite;
   use tokio::io::AsyncWriteExt;
   use tower::Service;
 
-  impl Server {
-    pub fn new(stream: tokio::net::UnixStream) -> Self {
+  impl<T> Server<T>
+  where
+    T: AsyncRead + AsyncWrite + Unpin,
+  {
+    pub fn new(stream: T) -> Self {
       Self { stream }
     }
 
@@ -197,7 +202,7 @@ pub mod server {
     }
   }
 
-  impl<Request> Service<Request> for Server
+  impl<Request, T> Service<Request> for Server<T>
   where
     Request: super::IntoRequest + 'static + Send + Sync + Display,
   {
@@ -207,9 +212,11 @@ pub mod server {
 
     fn poll_ready(
       &mut self,
-      cx: &mut std::task::Context<'_>,
+      _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Result<(), Self::Error>> {
-      self.stream.poll_read_ready(cx).map_err(|e| e.into())
+      // self.stream.poll_read_ready(cx).map_err(|e| e.into())
+      //
+      std::task::Poll::Ready(Ok(()))
     }
 
     fn call(&mut self, req: Request) -> Self::Future {
