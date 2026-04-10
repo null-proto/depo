@@ -1,12 +1,12 @@
 use std::fmt::Display;
-use std::net::SocketAddr;
 use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 
-use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncBufReadExt;
+use tokio::io::AsyncWriteExt;
 
-use crate::srv::ProxyAgent;
 use crate::srv::Macher;
+use crate::srv::ProxyAgent;
 
 pub mod srv;
 
@@ -23,7 +23,10 @@ async fn main() {
 
   println!("\x1b[90mproxy configured\x1b[0m");
   println!("\x1b[32mtcp\x1b[0m   <<<  \x1b[90m{}\x1b[0m", addr);
-  println!("\x1b[34munix\x1b[0m  >>>  \x1b[90m{}\x1b[0m", server_path.display());
+  println!(
+    "\x1b[34munix\x1b[0m  >>>  \x1b[90m{}\x1b[0m",
+    server_path.display()
+  );
 
   let (tx, rx) = tokio::sync::mpsc::channel::<Message>(100);
   let (txr, rxr) = tokio::sync::mpsc::channel::<Message>(100);
@@ -41,7 +44,10 @@ async fn main() {
 
     sender.send(Message::Ok).await.unwrap();
     match receiver.recv().await.unwrap() {
-      state => stdout.write_all(format!("\rserver connection: {state}\n").as_bytes()).await.unwrap(),
+      state => stdout
+        .write_all(format!("\rserver connection: {state}\n").as_bytes())
+        .await
+        .unwrap(),
     };
 
     loop {
@@ -49,37 +55,33 @@ async fn main() {
         s = receiver.recv() => { Event::Msg(s) }
         _ = async {
           if blocked.is_empty() {
-            _ = stdout.write_all(format!("\r ~# {buf}").as_bytes()).await;
+            _ = stdout.write_all(format!("\r\x1b[33m#\x1b[0m {buf}").as_bytes()).await;
             _ = stdout.flush().await;
             _ = stdin.read_line(&mut buf).await;
           } else {
             for (i, b) in blocked.iter().enumerate() {
-              _ = stdout.write_all( format!("{}: {}\n" , i , b).as_bytes() );
+              _ = stdout.write_all( format!("\r\x1b[95m{:>4}\x1b[0m : \x1b[94m{}\x1b[0m\n" , i , b).as_bytes() ).await;
             }
-            _ = stdout.write_all(format!("\r [{}]$ {buf}", blocked.len()).as_bytes()).await;
+            _ = stdout.write_all(format!("\r[\x1b[30m{}\x1b[0m]\x1b[31m$\x1b[0m {buf2}", blocked.len()).as_bytes()).await;
             _ = stdout.flush().await;
             _ = stdin.read_line(&mut buf2).await;
 
-            if let Some((ind , f )) = buf2.split_once(" ").map(|(i,j)| (i.parse::<usize>().ok(),j) ) {
-              if let Some(ind) = ind {
-                if match f {
-                  "c" | "con" | "continue" => {
-                    let s = blocked.remove(ind).sender;
-                    s.send(Message::Release)
-                  },
-                  "k" | "kill" => {
-                    let s = blocked.remove(ind).sender;
-                    s.send(Message::Kill)
-                  }
-                  _ => {
-                    _ = stdout.write_all(b"unknown command: {k}\n").await;
-                    _ = stdout.flush().await;
-                    Ok(())
-                  }
-                }.is_err() {
-                  _ = stdout.write_all(b"failed to send\n").await;
-                }
+            let (ind , f ) = buf2.split_once(" ").map(|(i,j)| (i.parse::<usize>().ok().unwrap_or(0),j.trim() )).unwrap_or((0usize, buf2.trim()));
+
+            if match f {
+              "c" | "con" | "continue" => {
+                let s = blocked.remove(ind).sender;
+                s.send(Message::Release)
+              },
+              "k" | "kill" => {
+                let s = blocked.remove(ind).sender;
+                s.send(Message::Kill)
               }
+              _ => {
+                Ok(())
+              }
+            }.is_err() {
+              _ = stdout.write_all(b"failed to send\n").await;
             }
 
             buf2.clear();
@@ -104,13 +106,16 @@ async fn main() {
 
                   'a' => watcher.send(Macher::new(&buf_s[2..])).unwrap(),
 
-                  's' => sender.send(Message::Ok).await.unwrap(),
-
-                  any => watcher.send(Macher::new(any)).unwrap(),
+                  _ => watcher.send(Macher::new(buf_s)).unwrap(),
                 };
               };
             };
             buf.clear();
+          }
+
+          Event::Msg(Some(Message::Blocked(block))) => {
+            println!("\r\x1b[90mserver says:\x1b[0m {block}");
+            blocked.push(block);
           }
 
           Event::Msg(Some(m)) => {
@@ -156,12 +161,12 @@ pub enum Message {
 
 pub struct Block {
   sender: tokio::sync::oneshot::Sender<Message>,
-  matcher: Macher,
+  matcher: String,
 }
 
 impl Display for Block {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}", self.matcher.inner)
+    write!(f, "{}", self.matcher)
   }
 }
 
@@ -183,10 +188,10 @@ impl Display for Message {
           format!("\x1b[30mlog, {}\x1b[0m", s)
         }
         Blocked(Block {
-          matcher: Macher { inner },
+          matcher,
           ..
         }) => {
-          format!("block on, \x1b[31m{}\x1b[0m", inner)
+          format!("block on, \x1b[31m{}\x1b[0m", matcher)
         }
       }
     )

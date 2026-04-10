@@ -216,9 +216,22 @@ impl ClientAgent {
         if let life::Frame::Res(s) = &creq.frame {
           if s.starts_with(&m.inner) {
             let (tx, rx) = tokio::sync::oneshot::channel::<Message>();
-            self.sender.send(Message::Ok).await?;
+            self
+              .sender
+              .send(Message::Blocked(crate::Block {
+                sender: tx,
+                matcher: s.clone(),
+              }))
+              .await?;
             match rx.await? {
-              Message::Kill => continue,
+              Message::Kill => {
+                self
+                  .stream
+                  .write(Frame::Reset.into_res().into_vec_u8().as_slice())
+                  .await?;
+                self.stream.flush().await?;
+                continue;
+              }
               _ => {}
             }
           }

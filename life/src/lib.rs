@@ -240,6 +240,12 @@ pub mod server {
           Frame::Error(_) => Frame::new_err("client error".to_owned()),
           Frame::Res(s) => match s.as_str() {
             "client hello" => Frame::new_res("server hello".to_owned()),
+
+            cmd if cmd.starts_with("say ") => {
+              tracing::info!(target: "service" , "echoing: {}", cmd.replace("says ", ""));
+              Frame::new_res("ok".to_owned())
+            }
+
             _ => {
               tracing::debug!( target: "server" ,"what: {:?}", s);
               Frame::new_err("what ?".to_owned())
