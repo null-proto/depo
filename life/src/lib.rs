@@ -86,24 +86,37 @@ pub mod client {
     };
 
     match res?.frame {
-      Frame::Error(e) => {
-        tracing::error!("*** handshake error, {}", e);
-      }
+      Frame::Error(e) => Err(
+        Box::new(std::io::Error::new(
+          std::io::ErrorKind::TimedOut,
+          format!("handshake disruped due to {}", e),
+        ))
+        .into(),
+      ),
 
-      Frame::Reset => {
-        tracing::info!("*** handshake disruped, RESET");
-      }
+      Frame::Reset => Err(
+        Box::new(std::io::Error::new(
+          std::io::ErrorKind::TimedOut,
+          "handshake failed due to reset",
+        ))
+        .into(),
+      ),
 
       Frame::Res(s) => {
         if s == "server hello" {
-          tracing::info!("*** handshake completed");
+          tracing::info!(target: "client","*** handshake completed");
+          Ok(())
         } else {
-          tracing::info!("*** handshake disruped , {}", s);
+          Err(
+            Box::new(std::io::Error::new(
+              std::io::ErrorKind::TimedOut,
+              format!("handshake disruped: {}", s),
+            ))
+            .into(),
+          )
         }
       }
-    };
-
-    Ok(())
+    }
   }
 
   pub async fn client_handler<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
@@ -134,7 +147,7 @@ pub mod client {
             .await?;
           conn.flush().await?;
         }
-        tracing::debug!("*** completely send off, {:?}", s2);
+        tracing::debug!(target: "client","*** completely send off, {:?}", s2);
         s2.truncate(0);
       } else {
         continue;
@@ -458,6 +471,13 @@ impl Request {
 
 #[allow(dead_code)]
 impl Response {
+  pub fn is_err(&self) -> bool {
+    match &self.frame {
+      Frame::Error(_) => true,
+      _ => false,
+    }
+  }
+
   pub fn into_vec_u8<'a>(&'a self) -> Vec<u8> {
     match &self.frame {
       Frame::Error(e) => {

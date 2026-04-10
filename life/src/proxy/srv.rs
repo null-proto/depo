@@ -18,7 +18,7 @@ use std::{
 };
 
 use futures::FutureExt;
-use life::{IntoRequest, Request, Response};
+use life::{Frame, IntoRequest, Request, Response};
 use std::sync::Mutex;
 use tokio::{
   io::AsyncWriteExt,
@@ -46,7 +46,7 @@ pub struct ClientAgent {
   stream: TcpStream,
   sender: Sender<Message>,
   watcher: Watcher<Macher>,
-  fetch: Option<FetchAgent>,
+  fetch: FetchAgent,
 }
 
 pub struct ProxyAgent {
@@ -69,7 +69,7 @@ impl FetchAgent {
       Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "fetch timeout"))
     }
     }?;
-    self.sock.as_mut().map(move |_| sock);
+    self.sock = Some(sock);
     Ok(())
   }
 }
@@ -88,7 +88,7 @@ impl ClientAgent {
     watcher: Watcher<Macher>,
   ) -> Self {
     Self {
-      fetch: Some(FetchAgent::new(path)),
+      fetch: FetchAgent::new(path),
       stream,
       sender,
       watcher,
@@ -134,7 +134,6 @@ impl ProxyAgent {
 
         Err(Ok((stream, peer))) => {
           // new connection opened
-          self.sender.send(Message::Log("new tcp connection".to_owned())).await?;
 
           let mut client = ClientAgent::new(
             stream,
@@ -144,7 +143,16 @@ impl ProxyAgent {
           );
 
           tokio::spawn(async move {
-            client.call().await;
+            if let Err(e) = client.call().await {
+              client
+                .stream
+                .write(&Frame::new_err("cannot connect".to_string()).into_vec_u8())
+                .await;
+              client
+                .sender
+                .send(Message::Log(format!("connection dropped due to {}", e)))
+                .await;
+            }
           });
         }
 
@@ -158,7 +166,7 @@ impl ProxyAgent {
         }
 
         Ok(None) => {}
-      }
+      };
     }
   }
 }
@@ -171,26 +179,24 @@ impl FetchAgent {
     let req = req.into_req();
     let mut retry = 0u8;
 
-    loop {
+    while retry < 3 {
       if let Some(sock) = &mut self.sock {
         if sock.write(&req.into_vec_u8()).await.is_ok() {
-          break Response::read_from(sock).await;
+          return Response::read_from(sock).await;
         };
-      }
-      self.reconnect().await?;
-
-      if retry > 3u8 {
-        break Err(
-          Box::new(std::io::Error::new(
-            std::io::ErrorKind::TimedOut,
-            "retry exceeded",
-          ))
-          .into(),
-        );
       } else {
+        self.reconnect().await?;
         retry += 1;
       }
     }
+
+    Err(
+      Box::new(std::io::Error::new(
+        std::io::ErrorKind::TimedOut,
+        "retry exceeded",
+      ))
+      .into(),
+    )
   }
 }
 
@@ -211,7 +217,7 @@ impl ClientAgent {
           if s.starts_with(&m.inner) {
             let (tx, rx) = tokio::sync::oneshot::channel::<Message>();
             self.sender.send(Message::Ok).await?;
-            match rx.blocking_recv()? {
+            match rx.await? {
               Message::Kill => continue,
               _ => {}
             }
@@ -219,8 +225,13 @@ impl ClientAgent {
         }
       }
 
-      let sres = self.fetch.as_mut().unwrap().call(creq).await?;
+      let sres = self.fetch.call(creq).await?;
       self.stream.write(sres.into_vec_u8().as_slice()).await?;
+      self.stream.flush().await?;
+
+      if sres.is_err() {
+        break Ok(());
+      }
     }
   }
 }
