@@ -146,7 +146,7 @@ impl ProxyAgent {
             if let Err(e) = client.call().await {
               client
                 .stream
-                .write(&Frame::new_err("cannot connect".to_string()).into_vec_u8())
+                .write(&Frame::new_err(format!("cannot connect due to {}", e)).into_vec_u8())
                 .await;
               client
                 .sender
@@ -216,6 +216,7 @@ impl ClientAgent {
         if let life::Frame::Res(s) = &creq.frame {
           if s.starts_with(&m.inner) {
             let (tx, rx) = tokio::sync::oneshot::channel::<Message>();
+
             self
               .sender
               .send(Message::Blocked(crate::Block {
@@ -223,6 +224,7 @@ impl ClientAgent {
                 matcher: s.clone(),
               }))
               .await?;
+
             match rx.await? {
               Message::Kill => {
                 self

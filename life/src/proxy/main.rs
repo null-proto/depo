@@ -65,33 +65,13 @@ async fn main() {
             _ = stdout.write_all(format!("\r[\x1b[30m{}\x1b[0m]\x1b[31m$\x1b[0m {buf2}", blocked.len()).as_bytes()).await;
             _ = stdout.flush().await;
             _ = stdin.read_line(&mut buf2).await;
-
-            let (ind , f ) = buf2.split_once(" ").map(|(i,j)| (i.parse::<usize>().ok().unwrap_or(0),j.trim() )).unwrap_or((0usize, buf2.trim()));
-
-            if match f {
-              "c" | "con" | "continue" => {
-                let s = blocked.remove(ind).sender;
-                s.send(Message::Release)
-              },
-              "k" | "kill" => {
-                let s = blocked.remove(ind).sender;
-                s.send(Message::Kill)
-              }
-              _ => {
-                Ok(())
-              }
-            }.is_err() {
-              _ = stdout.write_all(b"failed to send\n").await;
-            }
-
-            buf2.clear();
           }
         } => { Event::Io(()) }
       };
 
-      if blocked.is_empty() {
-        match m {
-          Event::Io(_) => {
+      match m {
+        Event::Io(_) => {
+          if blocked.is_empty() {
             let buf_s = buf.trim();
 
             if buf_s.chars().last().map(|i| i == '-').unwrap_or(false) {
@@ -111,18 +91,39 @@ async fn main() {
               };
             };
             buf.clear();
-          }
+          } else {
+            let (ind, f) = buf2
+              .split_once(" ")
+              .map(|(i, j)| (i.parse::<usize>().ok().unwrap_or(0), j.trim()))
+              .unwrap_or((0usize, buf2.trim()));
 
-          Event::Msg(Some(Message::Blocked(block))) => {
-            println!("\r\x1b[90mserver says:\x1b[0m {block}");
+            if match f {
+              "c" | "con" | "continue" => {
+                let s = blocked.remove(ind).sender;
+                s.send(Message::Release)
+              }
+              "k" | "kill" => {
+                let s = blocked.remove(ind).sender;
+                s.send(Message::Kill)
+              }
+              _ => Ok(()),
+            }
+            .is_err()
+            {
+              _ = stdout.write_all(b"failed to send\n").await;
+            }
+
+            buf2.clear();
+          }
+        }
+
+        Event::Msg(Some(m)) => {
+          println!("\r\x1b[90mserver says:\x1b[0m {m}");
+          if let Message::Blocked(block) = m {
             blocked.push(block);
           }
-
-          Event::Msg(Some(m)) => {
-            println!("\r\x1b[90mserver says:\x1b[0m {m}");
-          }
-          _ => {}
-        };
+        }
+        _ => {}
       };
     }
   });
@@ -187,10 +188,7 @@ impl Display for Message {
         Log(s) => {
           format!("\x1b[30mlog, {}\x1b[0m", s)
         }
-        Blocked(Block {
-          matcher,
-          ..
-        }) => {
+        Blocked(Block { matcher, .. }) => {
           format!("block on, \x1b[31m{}\x1b[0m", matcher)
         }
       }
