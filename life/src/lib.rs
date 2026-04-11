@@ -6,20 +6,16 @@ pub mod client {
   use tokio::io::AsyncRead;
   use tokio::io::AsyncWrite;
   use tokio::io::AsyncWriteExt;
+  use tokio::io::split;
 
-  #[allow(unused)]
-  async fn client_m_handler(
-    mut conn: tokio::net::UnixStream,
+  pub async fn client_handler_non_blocking<S: AsyncRead + AsyncWrite + Unpin + Send + 'static>(
+    mut conn: S,
   ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!(target :"client" , "connection established {conn:?}");
+    tracing::info!(target :"client" , "*** connection established");
+    handshake(&mut conn).await?;
+
     let mut stdin = tokio::io::BufReader::new(tokio::io::stdin());
-
-    conn
-      .write(&Frame::new_req(String::from("client hello")).into_vec_u8())
-      .await?;
-    conn.flush().await?;
-
-    let (mut read, mut write) = conn.into_split();
+    let (mut read, mut write) = split(conn);
 
     let writer: tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>> =
       tokio::spawn(async move {
@@ -30,17 +26,18 @@ pub mod client {
           s2 = s2.trim_end().to_owned();
 
           if !s2.is_empty() {
-            tracing::debug!(": {:?}", s2);
             if s2 == "exit" {
               write.write(&Frame::done().into_vec_u8()).await?;
               write.flush().await?;
+              tracing::info!(target :"client" , "*** force exit");
               break;
             } else {
               write
                 .write(&Frame::new_req(s2.clone()).into_vec_u8())
                 .await?;
               write.flush().await?;
-              s2.truncate(0);
+              tracing::info!(target :"client" , "*** request completely sendoff");
+              s2.clear();
             }
           }
         }

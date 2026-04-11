@@ -13,6 +13,10 @@ name = "tcp_client"
 path = "src/tcp_client.rs"
 
 [[bin]]
+name = "tcp_client_nb"
+path = "src/tcp_client_nb.rs"
+
+[[bin]]
 name = "proxy"
 path = "src/proxy/main.rs"
 
