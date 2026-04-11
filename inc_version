@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+
+__branch_=$(git branch --show-current)
+__git_tag_=$(git tag --points-at HEAD)
+__file="./Cargo.toml"
+
+__version_complete=$(sed -n 's/^version = "\(.*\)"/\1/p' $__file)
+
+_tag=$(echo "$__version_complete" | sed -E 's/[0-9\.]+-([A-Za-z]+).[0-9]+/\1/')
+_code=$(echo "$__version_complete" | sed -E 's/([0-9\.]+)-[A-Za-z]+.[0-9]+/\1/')
+_build_id=$(( $(echo "$__version_complete" | sed -E 's/[0-9\.]+-[A-Za-z]+.([0-9]+)/\1/') +1))
+
+
+
+_version=$(
+	if test "$__branch_" = "master"; then
+		if test "$__git_tag_"; then 
+			echo "$_code-build.$_build_id";
+			else echo "$_code-rc.$_build_id";
+		fi
+
+	elif test "$__branch_" = "dev"; then
+		echo "$_code-beta.$_build_id";
+
+	elif test "$__branch_" = "alpha"; then
+		echo "$_code-alpha.$_build_id";
+
+	else echo "$_code-$_tag.$_build_id";
+	fi
+	)
+
+sed -i "s/^version = \".*\"/version = \"$_version\"/" $__file

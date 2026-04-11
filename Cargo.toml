@@ -13,7 +13,7 @@ futures = "0.3.32"
 
 [package]
 name = "depo"
-version = "0.1.0"
+version = "0.1.0-build.64"
 edition = "2024"
 
 [dependencies]
